@@ -1,0 +1,10 @@
+{
+  "shop_url": "http://shopware:80",
+  "client_id": "<SHOPWARE_CLIENT_ID>",
+  "client_secret": "<SHOPWARE_CLIENT_SECRET>",
+  "sales_channel_id": "<SHOPWARE_SALES_CHANNEL_ID>",
+  "api_version": "6.0",
+  "sync_interval": 300,
+  "enabled": true,
+  "name": "shopware-main"
+}

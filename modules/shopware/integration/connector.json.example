@@ -1,0 +1,28 @@
+{
+  "shopware": {
+    "base_url": "http://shopware:80",
+    "api_username": "omni-middleware",
+    "client_id": "<SHOPWARE_CLIENT_ID>",
+    "client_secret": "<SHOPWARE_CLIENT_SECRET>",
+    "sales_channel_id": "<SHOPWARE_SALES_CHANNEL_ID>",
+    "api_version": "6.0",
+    "auth_mode": "integration_oauth",
+    "use_official_apis_only": true,
+    "no_direct_db_access": true
+  },
+  "modules": [
+    "products",
+    "variants",
+    "categories",
+    "media",
+    "inventory",
+    "pricing",
+    "orders",
+    "customers",
+    "webhooks",
+    "health"
+  ],
+  "webhook_base_url": "<MIDDLEWARE_PUBLIC_URL>/api/webhooks/shopware",
+  "health_endpoint_enabled": true,
+  "notes": "Template für Middleware-Integration. client_secret nie committen; Werte aus Shopware-Integration übernehmen."
+}
