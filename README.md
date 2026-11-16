@@ -17,9 +17,10 @@ cp .env.example .env   # Werte/Secrets anpassen
 | `edge-proxy` | Traefik Reverse-Proxy | 80,443,8080 | Dashboard optional |
 | `portainer` | Portainer CE (Docker UI) | 9443,9000 | verwaltet lokalen Docker |
 | `marketing` | Marketing-Worker (Platzhalter/konfigurierbar) | - | skaliert/aktivierbar |
-| `social` | Social-Worker (Platzhalter) | - | skaliert/aktivierbar |
+| `social` | Social-Media-Worker (Platzhalter) | - | skaliert/aktivierbar |
 | `content-studio` | Content/AI-Worker (Platzhalter) | - | skaliert/aktivierbar |
 | `coding-swarm` | Coding-Swarm Agent (on-demand) | - | Profil/On-demand |
+| **`integrated`** | **Gebündelt:** Middleware+DB + AI/OmniRoute + Shopware + Social + Marketing + Content-Studio + Coding-Swarm | 8002,20128,8088 | alle Module vorkonfiguriert & in Middleware integriert (`./start.sh up`) |
 
 > Ports via `.env` anpassbar, um Konflikte (z.B. live `:8002`) zu vermeiden.
 

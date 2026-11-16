@@ -1,0 +1,301 @@
+name: omni-integrated
+
+# Integrierter Stack: Middleware + alle Module, die in die Middleware integriert sind
+# (AI/OmniRoute, Commerce/Shopware, Growth/Social+Marketing, Content/Coding).
+# Nutzung: cp .env.example .env && ./start.sh up
+
+x-log: &log
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "5" }
+
+services:
+  # --- Core: Datenbank + Middleware ---
+  db:
+    <<: *log
+    image: postgres:15-alpine
+    container_name: ${COMPOSE_PROJECT_NAME:-omni-integrated}-db
+    restart: unless-stopped
+    shm_size: 256mb
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-omnicore}
+      POSTGRES_USER: ${POSTGRES_USER:-omnichat}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      PGDATA: /var/lib/postgresql/data/pgdata
+      TZ: ${TZ:-Europe/Berlin}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ../middleware/db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-omnichat} -d ${POSTGRES_DB:-omnicore}"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    networks: [omni]
+
+  middleware:
+    <<: *log
+    build:
+      context: ../middleware
+      dockerfile: Dockerfile
+    image: ${OMNICORE_IMAGE:-omnicore-middleware}:${OMNICORE_TAG:-local}
+    container_name: ${COMPOSE_PROJECT_NAME:-omni-integrated}-middleware
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      omniroute:
+        condition: service_healthy
+    environment:
+      TZ: ${TZ:-Europe/Berlin}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-omnichat}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-omnicore}
+      DATABASE_PATH: /app/data/middleware.db
+      SESSION_SECRET: ${SESSION_SECRET:-}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-}
+      SECRET_KEY: ${SECRET_KEY:-}
+      JWT_SECRET: ${JWT_SECRET:-}
+      # AI / OmniRoute (integriert)
+      OMNIROUTE_ENABLED: "true"
+      OMNIROUTE_URL: http://omniroute:20128/v1
+      OMNIROUTE_BASE_URL: http://omniroute:20128/v1
+      OMNIROUTE_URL_LOCAL: http://omniroute:20128/v1
+      OMNIROUTE_URL_PUBLIC: ${OMNIROUTE_URL_PUBLIC:-}
+      OMNIROUTE_API_KEY: ${OMNIROUTE_API_KEY:-sk-814c9467fd9c9314-a41c41-72e2d3b0}
+      # Commerce / Shopware (integriert)
+      SHOPWARE_URL: ${SHOPWARE_URL:-http://shopware:80}
+      SHOPWARE_CLIENT_ID: ${SHOPWARE_CLIENT_ID:-}
+      SHOPWARE_CLIENT_SECRET: ${SHOPWARE_CLIENT_SECRET:-}
+      SHOPWARE_SALES_CHANNEL_ID: ${SHOPWARE_SALES_CHANNEL_ID:-}
+      SHOPWARE_API_VERSION: ${SHOPWARE_API_VERSION:-6.0}
+      SHOPWARE_ENABLED: ${SHOPWARE_ENABLED:-true}
+      MIDDLEWARE_URL: http://middleware:8000
+      UVICORN_WORKERS: ${UVICORN_WORKERS:-1}
+      UVICORN_LOOP: uvloop
+      UVICORN_HTTP: httptools
+    ports:
+      - "${SERVICE_BIND_HOST:-0.0.0.0}:${MIDDLEWARE_PORT:-8002}:8000"
+    volumes:
+      - app_data:/app/data
+      - middleware_media:/app/media
+      - middleware_uploads:/app/uploads
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8000/healthz || curl -fsS http://127.0.0.1:8000/health >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 40s
+    networks: [omni]
+
+  # --- AI: OmniRoute (all-in-one, alle Configs & API-Keys) ---
+  omniroute:
+    <<: *log
+    build:
+      context: ../omniroute-allinone
+      dockerfile: Dockerfile
+      args:
+        OMNIROUTE_VERSION: ${OMNIROUTE_VERSION:-latest}
+    image: ${OMNIROUTE_IMAGE:-ghcr.io/local/omniroute-gateway-allinone}:${OMNIROUTE_TAG:-1.0.0}
+    container_name: ${COMPOSE_PROJECT_NAME:-omni-integrated}-omniroute
+    restart: unless-stopped
+    init: true
+    environment:
+      TZ: ${TZ:-Europe/Berlin}
+      OMNIROUTE_SERVER_HOST: 0.0.0.0
+      OMNIROUTE_PORT: "20128"
+      REQUIRE_API_KEY: ${REQUIRE_API_KEY:-true}
+      OMNIROUTE_API_KEY: ${OMNIROUTE_API_KEY:-sk-814c9467fd9c9314-a41c41-72e2d3b0}
+      OMNIROUTE_API_KEYS: ${OMNIROUTE_API_KEYS:-sk-814c9467fd9c9314-a41c41-72e2d3b0,test-key}
+      API_KEY: ${OMNIROUTE_API_KEY:-sk-814c9467fd9c9314-a41c41-72e2d3b0}
+      OMNIROUTE_STORAGE_ENCRYPTION_KEY: ${OMNIROUTE_STORAGE_ENCRYPTION_KEY:-__GENERATE__}
+    ports:
+      - "${SERVICE_BIND_HOST:-0.0.0.0}:${OMNIROUTE_PORT:-20128}:20128"
+    volumes:
+      - omniroute_config:/root/.omniroute
+      - omniroute_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:20128/v1/models >/dev/null 2>&1 || curl -fsS -H \"Authorization: Bearer ${OMNIROUTE_API_KEY:-sk-814c9467fd9c9314-a41c41-72e2d3b0}\" -o /dev/null http://127.0.0.1:20128/v1/models >/dev/null 2>&1 || node -e \"require('http').get({host:'127.0.0.1',port:20128,path:'/v1/models',headers:{Authorization:'Bearer ${OMNIROUTE_API_KEY:-sk-814c9467fd9c9314-a41c41-72e2d3b0}'}},r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))\" >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    networks: [omni]
+
+  # --- Commerce: Shopware 6 (integriert, inkl. Auto-Bootstrap der Middleware-Connection) ---
+  shopware:
+    <<: *log
+    image: ${SHOPWARE_IMAGE:-dockware/dev}:${SHOPWARE_TAG:-latest}
+    container_name: ${COMPOSE_PROJECT_NAME:-omni-integrated}-shopware
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Europe/Berlin}
+      XDEBUG_ENABLED: "0"
+    ports:
+      - "${SERVICE_BIND_HOST:-0.0.0.0}:${SHOPWARE_PORT:-8088}:80"
+    volumes:
+      - shopware_data:/var/www/html
+      - shopware_db:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1/ >/dev/null 2>&1 || wget -q --spider http://127.0.0.1/ >/dev/null 2>&1 || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+    networks: [omni]
+
+  shopware-bootstrap:
+    <<: *log
+    image: alpine:3.20
+    container_name: ${COMPOSE_PROJECT_NAME:-omni-integrated}-shopware-bootstrap
+    depends_on:
+      shopware:
+        condition: service_healthy
+    working_dir: /work
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ../shopware:/work
+    environment:
+      TZ: ${TZ:-Europe/Berlin}
+      SHOPWARE_CONTAINER: ${COMPOSE_PROJECT_NAME:-omni-integrated}-shopware
+      SHOPWARE_INTEGRATION_LABEL: ${SHOPWARE_INTEGRATION_LABEL:-omni-middleware}
+      SHOPWARE_APP_URL: http://localhost:${SHOPWARE_PORT:-8088}
+      SHOPWARE_URL: http://shopware:80
+      SHOPWARE_PORT: ${SHOPWARE_PORT:-8088}
+      MIDDLEWARE_URL: http://middleware:8000
+      MIDDLEWARE_INTERNAL_API_KEY: ${INTERNAL_API_KEY:-}
+      SHOPWARE_SALES_CHANNEL_ID: ${SHOPWARE_SALES_CHANNEL_ID:-}
+      BOOTSTRAP_RETRY_INTERVAL: ${BOOTSTRAP_RETRY_INTERVAL:-15}
+      BOOTSTRAP_MAX_ATTEMPTS: ${BOOTSTRAP_MAX_ATTEMPTS:-40}
+      BOOTSTRAP_WAIT_SEC: ${BOOTSTRAP_WAIT_SEC:-300}
+    entrypoint: ["/bin/sh", "-lc"]
+    command:
+      - >-
+        apk add --no-cache bash curl python3 docker-cli coreutils >/dev/null 2>&1 || true;
+        chmod +x scripts/*.sh 2>/dev/null || true;
+        ./scripts/bootstrap-loop.sh --auto --container "$${SHOPWARE_CONTAINER}" --label "$${SHOPWARE_INTEGRATION_LABEL}" --middleware-url "$${MIDDLEWARE_URL}" --shop-url "$${SHOPWARE_URL}" || echo "[bootstrap] finished with warnings"
+    restart: "no"
+    networks: [omni]
+
+  # --- Growth / Social Media (in Middleware integriert) ---
+  social:
+    <<: *log
+    image: ${SOCIAL_IMAGE:-alpine:3.20}
+    container_name: ${COMPOSE_PROJECT_NAME:-omni-integrated}-social
+    restart: unless-stopped
+    command: ["sh","-lc","echo social ready (middleware=$MIDDLEWARE_URL); while true; do sleep 3600; done"]
+    environment:
+      TZ: ${TZ:-Europe/Berlin}
+      MODULE_NAME: social
+      MIDDLEWARE_URL: http://middleware:8000
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-}
+      OMNIROUTE_URL: http://omniroute:20128/v1
+      OMNIROUTE_API_KEY: ${OMNIROUTE_API_KEY:-sk-814c9467fd9c9314-a41c41-72e2d3b0}
+    volumes:
+      - social_data:/data
+    depends_on:
+      middleware:
+        condition: service_healthy
+    networks: [omni]
+
+  # --- Growth / Marketing (in Middleware integriert) ---
+  marketing:
+    <<: *log
+    image: ${MARKETING_IMAGE:-alpine:3.20}
+    container_name: ${COMPOSE_PROJECT_NAME:-omni-integrated}-marketing
+    restart: unless-stopped
+    command: ["sh","-lc","echo marketing ready (middleware=$MIDDLEWARE_URL); while true; do sleep 3600; done"]
+    environment:
+      TZ: ${TZ:-Europe/Berlin}
+      MODULE_NAME: marketing
+      MIDDLEWARE_URL: http://middleware:8000
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-}
+      OMNIROUTE_URL: http://omniroute:20128/v1
+      OMNIROUTE_API_KEY: ${OMNIROUTE_API_KEY:-sk-814c9467fd9c9314-a41c41-72e2d3b0}
+    volumes:
+      - marketing_data:/data
+    depends_on:
+      middleware:
+        condition: service_healthy
+    networks: [omni]
+
+  # --- AI / Content-Studio (in Middleware + OmniRoute integriert) ---
+  content-studio:
+    <<: *log
+    image: ${CONTENT_STUDIO_IMAGE:-alpine:3.20}
+    container_name: ${COMPOSE_PROJECT_NAME:-omni-integrated}-content-studio
+    restart: unless-stopped
+    command: ["sh","-lc","echo content-studio ready (middleware=$MIDDLEWARE_URL, ai=$OMNIROUTE_URL); while true; do sleep 3600; done"]
+    environment:
+      TZ: ${TZ:-Europe/Berlin}
+      MODULE_NAME: content-studio
+      MIDDLEWARE_URL: http://middleware:8000
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-}
+      OMNIROUTE_URL: http://omniroute:20128/v1
+      OMNIROUTE_API_KEY: ${OMNIROUTE_API_KEY:-sk-814c9467fd9c9314-a41c41-72e2d3b0}
+    volumes:
+      - content_studio_data:/data
+    depends_on:
+      middleware:
+        condition: service_healthy
+      omniroute:
+        condition: service_healthy
+    networks: [omni]
+
+  # --- AI / Coding-Swarm (in Middleware + OmniRoute integriert) ---
+  coding-swarm:
+    <<: *log
+    image: ${CODING_SWARM_IMAGE:-alpine:3.20}
+    container_name: ${COMPOSE_PROJECT_NAME:-omni-integrated}-coding-swarm
+    restart: unless-stopped
+    command: ["sh","-lc","echo coding-swarm ready (middleware=$MIDDLEWARE_URL, ai=$OMNIROUTE_URL); while true; do sleep 3600; done"]
+    environment:
+      TZ: ${TZ:-Europe/Berlin}
+      MODULE_NAME: coding-swarm
+      MIDDLEWARE_URL: http://middleware:8000
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-}
+      OMNIROUTE_URL: http://omniroute:20128/v1
+      OMNIROUTE_API_KEY: ${OMNIROUTE_API_KEY:-sk-814c9467fd9c9314-a41c41-72e2d3b0}
+    volumes:
+      - coding_swarm_data:/data
+    depends_on:
+      middleware:
+        condition: service_healthy
+      omniroute:
+        condition: service_healthy
+    networks: [omni]
+
+  # --- Optional: ZeroTier Sidecar ---
+  zerotier:
+    image: ${ZEROTIER_IMAGE:-zerotier/zerotier:latest}
+    container_name: ${COMPOSE_PROJECT_NAME:-omni-integrated}-zerotier
+    restart: unless-stopped
+    profiles: ["zt"]
+    network_mode: host
+    cap_add: [NET_ADMIN, SYS_ADMIN]
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    volumes:
+      - zerotier_data:/var/lib/zerotier-one
+    environment:
+      ZT_NETWORK_ID: ${ZT_NETWORK_ID:-}
+    command: ["sh","-lc","zerotier-one -d; sleep 3; if [ -n \"${ZT_NETWORK_ID:-}\" ]; then zerotier-cli join ${ZT_NETWORK_ID} || true; fi; tail -f /dev/null"]
+
+volumes:
+  pg_data:
+  app_data:
+  middleware_media:
+  middleware_uploads:
+  omniroute_config:
+  omniroute_data:
+  shopware_data:
+  shopware_db:
+  social_data:
+  marketing_data:
+  content_studio_data:
+  coding_swarm_data:
+  zerotier_data:
+
+networks:
+  omni:
+    name: ${COMPOSE_PROJECT_NAME:-omni-integrated}_net
+    driver: bridge
