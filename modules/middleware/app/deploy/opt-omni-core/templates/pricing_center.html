@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Pricing | Omni-Core Admin{% endblock %}
+{% block content %}
+<div x-data="pricingPage()" x-init="load()" class="space-y-4 max-w-7xl mx-auto">
+  <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
+    <div><h1 class="text-2xl md:text-3xl font-bold">Pricing & Margenkalkulation</h1><p class="text-slate-400">Preisberechnung, Break-even und Empfehlungen auf Basis realer Kalkulationslogik.</p></div>
+    <button @click="load()" class="btn btn-secondary">Aktualisieren</button>
+  </div>
+
+  <div class="grid lg:grid-cols-2 gap-4">
+    <div class="card p-4 space-y-3">
+      <h2 class="font-semibold">Kalkulation</h2>
+      <div><label class="label">Einkaufspreis (Supplier)</label><input x-model.number="supplier" type="number" step="0.01" min="0" class="input"></div>
+      <div class="flex gap-2"><button @click="calc()" class="btn btn-primary">Berechnen</button><button @click="loadRecs()" class="btn btn-secondary">Empfehlungen laden</button></div>
+      <template x-if="calcError"><div class="text-sm text-red-300" x-text="calcError"></div></template>
+      <div class="grid grid-cols-2 gap-3" x-show="calcResult">
+        <div class="bg-slate-950 border border-slate-800 rounded p-3"><div class="text-xs text-slate-400">Basis-Kosten</div><div class="text-xl font-bold" x-text="money(calcResult && calcResult.base_cost)"></div></div>
+        <div class="bg-slate-950 border border-slate-800 rounded p-3"><div class="text-xs text-slate-400">Verkaufspreis</div><div class="text-xl font-bold text-emerald-300" x-text="money(calcResult && calcResult.final_price)"></div></div>
+        <div class="bg-slate-950 border border-slate-800 rounded p-3"><div class="text-xs text-slate-400">Break-even</div><div class="text-xl font-bold" x-text="money(calcResult && calcResult.break_even)"></div></div>
+        <div class="bg-slate-950 border border-slate-800 rounded p-3"><div class="text-xs text-slate-400">Marge (impl.)</div><div class="text-xl font-bold" x-text="margin()"></div></div>
+      </div>
+      <pre class="text-xs bg-slate-950 border border-slate-800 rounded p-3 overflow-auto max-h-56" x-text="format(calcResult)"></pre>
+    </div>
+    <div class="card p-4 space-y-3">
+      <h2 class="font-semibold">Empfehlungen / Regeln</h2>
+      <template x-if="recError"><div class="text-sm text-red-300" x-text="recError"></div></template>
+      <pre class="text-xs bg-slate-950 border border-slate-800 rounded p-3 overflow-auto max-h-[28rem]" x-text="format(recs)"></pre>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function pricingPage(){return{supplier:10,calcResult:null,recs:null,calcError:'',recError:'',money(v){return v==null?'—':(Number(v).toFixed(2)+' €');},format(d){return d?JSON.stringify(d,null,2):'—';},margin(){if(!this.calcResult) return '—'; const b=Number(this.calcResult.base_cost||0), f=Number(this.calcResult.final_price||0); if(!f) return '—'; return ((f-b)/f*100).toFixed(1)+' %';},async load(){await this.loadRecs();},async calc(){this.calcError=''; try{this.calcResult=await apiFetch('/api/pricing/calculate',{method:'POST',body:JSON.stringify({supplier_price:Number(this.supplier||0)})});}catch(e){this.calcError=e.message; this.calcResult=null;}},async loadRecs(){this.recError=''; try{this.recs=await apiFetch('/api/sales/pricing-recommendations');}catch(e){this.recError=e.message; this.recs=null;}}}}
+</script>
+{% endblock %}

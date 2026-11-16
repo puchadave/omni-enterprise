@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="de" data-theme="dark" class="dark">
+<head>
+    <meta charset="UTF-8"><title>Omni-Core AI Photoshooting</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.3.0/chart.min.js" defer></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen p-6">
+
+    <div class="max-w-7xl mx-auto">
+
+        <!-- Header -->
+        <header class="border-b border-slate-800 mb-6">
+            <nav class="flex items-center justify-between flex-wrap gap-4">
+                <div class="flex items-center gap-3">
+                    <a href="#" class="text-2xl font-bold text-emerald-400">Omni-Core ERP</a>
+                    <span class="text-slate-400 text-sm">v3.1.0</span>
+                </div>
+                <div class="flex items-center gap-4">
+                    <a href="/api/health" class="text-slate-300 hover:text-emerald-400 underline text-sm" target="_blank">Health</a>
+                    <a href="/" class="text-slate-300 hover:text-emerald-400 underline text-sm">Dashboard</a>
+                </div>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main class="p-6">
+
+            <!-- Shoot Creation Form -->
+            <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-xl mb-6">
+                <h3 class="text-slate-400 text-sm font-semibold mb-4">Neuen Shooting starten</h3>
+                
+                <form id="shootForm" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    
+                    <!-- Product Selection -->
+                    <div>
+                        <label class="text-slate-300 text-sm font-medium mb-2">Produkt SKU</label>
+                        <input type="text" id="productSku" name="product_sku" 
+                               class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-slate-100 placeholder-slate-400 focus:outline-none focus:border-emerald-400"
+                               required
+                               placeholder="z.B. UPC-00123">
+                        <p class="text-xs text-slate-500 mt-1">SKU aus dem Produktkatalog</p>
+                    </div>
+
+                    <!-- Model Selection -->
+                    <div>
+                        <label class="text-slate-300 text-sm font-medium mb-2">Models</label>
+                        <div class="space-y-2">
+                            <div class="flex flex-wrap gap-2">
+                                <!-- Models will be populated by JS -->
+                            </div>
+                        </div>
+                        <p class="text-xs text-slate-500 mt-2">Ausgewählte Models behalten ihre Identität bei</p>
+                    </div>
+
+                    <!-- Preset Selection -->
+                    <div>
+                        <label class="text-slate-300 text-sm font-medium mb-2">Preset</label>
+                        <select id="presetSelect" name="preset" 
+                                class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-slate-100 placeholder-slate-400 focus:outline-none focus:border-emerald-400">
+                            <option value="custom">Custom</option>
+                            <option value="uptempo_studio">UPTEMPO STUDIO</option>
+                            <option value="hardstyle">HARDSTYLE</option>
+                            <option value="frenchcore">FRENCHCORE</option>
+                            <option value="live_rave">LIVE RAVE</option>
+                            <option value="premium_ecommerce">PREMIUM E-COMMERCE</option>
+                        </select>
+                    </div>
+
+                    <!-- Shoot Parameters -->
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="text-slate-300 text-sm font-medium mb-2">Pose</label>
+                            <input type="text" id="poseInput" name="pose" 
+                                   class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-slate-100 placeholder-slate-400 focus:outline-none focus:border-emerald-400"
+                                   value="standing" required>
+                        </div>
+                        <div>
+                            <label class="text-slate-300 text-sm font-medium mb-2">Camera</label>
+                            <input type="text" id="cameraInput" name="camera" 
+                                   class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-slate-100 placeholder-slate-400 focus:outline-none focus:border-emerald-400"
+                                   value="fashion_editorial" required>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="text-slate-300 text-sm font-medium mb-2">Lighting</label>
+                            <input type="text" id="lightingInput" name="lighting" 
+                                   class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-slate-100 placeholder-slate-400 focus:outline-none focus:border-emerald-400"
+                                   value="">
+                        </div>
+                        <div>
+                            <label class="text-slate-300 text-sm font-medium mb-2">Aspekt Ratio</label>
+                            <select id="aspectRatioSelect" name="aspect_ratio" 
+                                    class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-slate-100 placeholder-slate-400 focus:outline-none focus:border-emerald-400">
+                                <option value="4:5">4:5 (Porträt)</option>
+                                <option value="16:9">16:9 (Querformat)</option>
+                                <option value="3:4">3:4</option>
+                                <option value="1:1">1:1 (Quadratisch)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="text-slate-300 text-sm font-medium mb-2">Anzahl Bilder</label>
+                        <input type="number" id="imageCountInput" name="image_count" 
+                               min="1" max="12" value="4"
+                               class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-slate-100 placeholder-slate-400 focus:outline-none focus:border-emerald-400">
+                    </div>
+
+                    <!-- Submit -->
+                    <div class="col-span-2">
+                        <button type="submit" 
+                                class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-3 px-6 rounded-lg transition-colors flex items-center justify-center gap-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10L7 7m3 3L7 3m7 3V7m0 0a2 2 0 012 2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2zm-9 9h2m2 0h2m7-4v2m0 0h2m-7-4v2m0 0h2m-2 0h2m2 0H5m2 0h2"/>
+                            </svg>
+                            Shooting starten
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Active Shoots Status -->
+            <div id="activeShoots" class="hidden bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-xl mb-6">
+                <h3 class="text-slate-400 text-sm font-semibold mb-4">Aktive Shoots</h3>
+                <div id="shootsList" class="space-y-3">
+                    <!-- Will be populated by JS -->
+                </div>
+            </div>
+
+            <!-- Shoot Results Section (initially hidden) -->
+            <div id="shootResults" class="hidden bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-xl mb-6">
+                <h3 class="text-slate-400 text-sm font-semibold mb-4">Shooting-Ergebnisse</h3>
+                <div id="resultsContainer" class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4">
+                    <!-- Will be populated by JS -->
+                </div>
+            </div>
+
+            <!-- Flash Messages -->
+            <div id="flashMessages" class="fixed top-6 right-6 z-50 flex flex-col gap-2"></div>
+
+        </main>
+
+    </div>
+
+    {% include "partials/api_client.html" %}
+    <script>
+        // Initialize state
+        const photoshoot = {
+            currentShoot: null,
+            models: [],
+            init: async function() {
+                await this.loadModels();
+                this.setupEventListeners();
+            },
+            // Load available models from API
+            async loadModels() {
+                try {
+                    const data = await apiFetch('/api/omniroute/models');
+                    const modelSelect = document.querySelector('div.flex.flex-wrap.gap-2');
+                    
+                    if (data.models && data.models.length > 0) {
+                        data.models.forEach(model => {
+                            const modelKey = model.model_name || model.display_name || 'unknown';
+                            const isActive = model.active !== false;
+                            const label = `${model.display_name || modelKey} ${isActive ? '' : '(inaktiv)'}`;
+                            
+                            const labelEl = document.createElement('label');
+                            labelEl.className = `flex items-center gap-2 px-3 py-1 rounded bg-slate-700 text-sm ${isActive ? 'hover:bg-slate-600' : 'opacity-50 cursor-not-allowed'}`;
+                            labelEl.innerHTML = `
+                                <input type="checkbox" 
+                                       class="w-4 h-4 rounded border-slate-600 focus:ring-emerald-400"
+                                       value="${model.model_name}" ${isActive ? 'checked' : ''}
+                                       disabled="${!isActive}">
+                                <span class="text-slate-300">${label}</span>
+                            `;
+                            modelSelect.appendChild(labelEl);
+                        });
+                    }
+                } catch (error) {
+                    console.error('Fehler beim Laden der Models:', error);
+                }
+            },
+            // Setup event listeners
+            setupEventListeners: function() {
+                const form = document.getElementById('shootForm');
+                if (!form) return;
+                
+                form.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    await this.startShoot();
+                });
+                
+                // Preset change handler
+                const presetSelect = document.getElementById('presetSelect');
+                const presetHints = {
+                    'uptempo_studio': 'neutral studio, clean lighting',
+                    'hardstyle': 'dark club, red/black lighting',
+                    'frenchcore': 'dark industrial, dramatic lighting',
+                    'live_rave': 'concert stage, dynamic lighting',
+                    'premium_ecommerce': 'neutral studio, clean background'
+                };
+                if (presetSelect) {
+                    presetSelect.addEventListener('change', (e) => {
+                        const preset = e.target.value;
+                        const hintEl = document.getElementById('presetHint');
+                        if (hintEl && presetHints[preset]) {
+                            hintEl.textContent = presetHints[preset];
+                        }
+                    });
+                }
+                
+                // Initial preset hint
+                const presetHint = document.getElementById('presetHint');
+                if (presetSelect && presetHint) {
+                    presetHint.textContent = presetHints['custom'] || '';
+                }
+            },
+            // Start the photoshoot
+            startShoot: async function() {
+                const form = document.getElementById('shootForm');
+                if (!form) return;
+                
+                // Collect form data
+                const formData = new FormData(form);
+                const data = {
+                    product_sku: formData.get('product_sku'),
+                    models: Array.from(form.querySelectorAll('input[type="checkbox"]:checked'), input => input.value),
+                    scene: formData.get('preset') || 'custom',
+                    shot_type: 'product',
+                    variants: Number(formData.get('image_count') || 4),
+                    pose: formData.get('pose') || '',
+                    camera: formData.get('camera') || '',
+                    lighting: formData.get('lighting') || '',
+                    aspect_ratio: formData.get('aspect_ratio') || '4:5',
+                    execute: true
+                };
+                
+                // Show loading state
+                const submitBtn = form.querySelector('button');
+                if (submitBtn) {
+                    submitBtn.disabled = true;
+                    submitBtn.innerHTML = '<span>Wird gestartet...</span>';
+                }
+                
+                try {
+                    const result = await apiFetch('/api/photoshoot/start', {
+                        method: 'POST',
+                        body: JSON.stringify(data)
+                    });
+                    if (!result.shoot_id) throw new Error('Der Server hat keine Job-ID zurückgegeben.');
+                    photoshoot.currentShoot = result.shoot_id;
+                    photoshoot.showFlash('Shooting wurde gestartet!', 'success');
+                    setTimeout(() => photoshoot.loadShootStatus(result.shoot_id), 2000);
+                } catch (error) {
+                    console.error('Shoot Fehler:', error);
+                    photoshoot.showFlash(error.message, 'error');
+                } finally {
+                    if (submitBtn) {
+                        submitBtn.disabled = false;
+                        submitBtn.innerHTML = 'Shooting starten';
+                    }
+                }
+            },
+            // Load shoot status
+            loadShootStatus: async function(shootId) {
+                try {
+                    const data = await apiFetch(`/api/photoshoot/status/${encodeURIComponent(shootId)}`);
+                    const status = data.job && data.job.status;
+                    if (['completed', 'failed', 'rejected'].includes(status)) {
+                        // Show results
+                        await photoshoot.loadShootResults(shootId);
+                        document.getElementById('shootResults').classList.remove('hidden');
+                        document.getElementById('shootResults').classList.add('block');
+                    } else {
+                        // Show status and poll again
+                        const statusEl = document.getElementById('shootStatus');
+                        if (statusEl) {
+                            statusEl.textContent = `Status: ${status || 'unknown'}`;
+                        }
+                        // Poll every 3 seconds
+                        setTimeout(() => photoshoot.loadShootStatus(shootId), 3000);
+                    }
+                } catch (error) {
+                    console.error('Status Ladefehler:', error);
+                }
+            },
+            // Load shoot results
+            loadShootResults: async function(shootId) {
+                try {
+                    const data = await apiFetch(`/api/photoshoot/results/${encodeURIComponent(shootId)}`);
+                    
+                    const container = document.getElementById('resultsContainer');
+                    if (!container) return;
+                    
+                    container.innerHTML = '';
+                    
+                    if (data.assets && data.assets.length > 0) {
+                        data.assets.forEach((asset, i) => {
+                            const resultDiv = document.createElement('div');
+                            resultDiv.className = 'bg-slate-800 border border-slate-700 rounded-xl p-4';
+                            resultDiv.textContent = `Asset ${i + 1}: ${asset.asset_type || 'media'} · ${asset.status || 'available'}`;
+                            container.appendChild(resultDiv);
+                        });
+                    } else {
+                        container.innerHTML = '<p class="text-slate-500 text-center py-8">Keine Ergebnisse verfügbar</p>';
+                    }
+                } catch (error) {
+                    photoshoot.showFlash(error.message, 'error');
+                }
+            },
+            // Show flash message
+            showFlash: function(message, type = 'info') {
+                const container = document.getElementById('flashMessages');
+                if (!container) return;
+                
+                const colors = {
+                    success: 'bg-emerald-100 text-emerald-800',
+                    error: 'bg-red-100 text-red-800',
+                    info: 'bg-slate-100 text-slate-800',
+                };
+                
+                const color = colors[type] || colors.info;
+                const div = document.createElement('div');
+                div.className = `p-3 rounded-lg ${color} transition-all`;
+                const title = document.createElement('strong');
+                title.textContent = `${type.charAt(0).toUpperCase() + type.slice(1)}: `;
+                div.append(title, document.createTextNode(message));
+                
+                container.appendChild(div);
+                
+                setTimeout(() => {
+                    div.style.transition = 'opacity 0.5s';
+                    div.style.opacity = '0';
+                    setTimeout(() => div.remove(), 500);
+                }, 5000);
+            }
+        };
+
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', () => photoshoot.init());
+    </script>
+</body>
+</html>

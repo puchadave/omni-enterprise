@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}KI-Steuerung | OMNI-CORE{% endblock %}
+{% block content %}
+<div x-data="page()" x-init="loadAll()" class="space-y-4 max-w-7xl mx-auto">
+  <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
+    <div>
+      <h1 class="text-2xl md:text-3xl font-bold">KI-Steuerung & Modelle</h1>
+      <p class="text-slate-400">Verwalten Sie verfügbare KI-Anbieter, Modelle und Routing-Regeln. Ohne konfigurierte Anbieter werden keine KI-Antworten oder Generierungen ausgeführt.</p>
+    </div>
+    <div class="flex gap-2">
+      <button onclick="toggleAIAgent()" class="btn btn-secondary">KI-Copilot öffnen</button>
+      <button @click="loadAll()" class="btn btn-primary">Aktualisieren</button>
+    </div>
+  </div>
+
+  <div class="banner banner-warn text-sm"><div class="font-medium">Hinweis</div><div class="mt-1">Änderungen an KI-Konfigurationen können Auswirkungen auf Automatisierungen und Generierungen haben. Schreibende Änderungen werden – auch über den Copilot – nur nach Ihrer ausdrücklichen Bestätigung übernommen.</div></div>
+
+  <div class="grid lg:grid-cols-2 gap-4">
+    <template x-for="ep in endpoints" :key="ep.url">
+      <div class="card p-4">
+        <div class="flex items-center justify-between mb-1">
+          <h2 class="font-semibold" x-text="ep.label"></h2>
+          <span class="badge" :class="stateBadge(ep.state)" x-text="stateLabel(ep.state)"></span>
+        </div>
+        <p class="text-xs text-slate-400 mb-3" x-text="ep.help"></p>
+        <template x-if="ep.state==='loading'"><div class="space-y-2"><div class="skeleton h-8 w-full"></div><div class="skeleton h-8 w-4/5"></div></div></template>
+        <template x-if="ep.state==='error'"><div class="banner banner-error text-sm"><div x-text="ep.error"></div><button class="btn btn-secondary !py-1.5 mt-2" @click="loadEp(ep)">Erneut versuchen</button></div></template>
+        <template x-if="ep.state==='empty'"><div class="empty-state !py-6"><div class="icon">🤖</div><div class="title" x-text="ep.emptyTitle"></div><div class="text-sm" x-text="ep.emptyText"></div><a href="/ui/settings" class="btn btn-primary mt-3">In Einstellungen konfigurieren</a></div></template>
+        <template x-if="ep.state==='ok'">
+          <div>
+            <div class="overflow-auto max-h-80 border border-slate-800 rounded" x-show="ep.rows && ep.rows.length">
+              <table class="tbl text-xs"><thead><tr><template x-for="col in ep.cols" :key="col"><th x-text="col"></th></template></tr></thead><tbody>
+                <template x-for="(row,idx) in ep.rows" :key="idx"><tr><template x-for="col in ep.cols" :key="col"><td x-text="formatCell(row[col])"></td></template></tr></template>
+              </tbody></table>
+            </div>
+            <pre x-show="!ep.rows || !ep.rows.length" class="text-xs bg-slate-950 border border-slate-800 rounded p-3 overflow-auto max-h-80" x-text="JSON.stringify(ep.data,null,2)"></pre>
+          </div>
+        </template>
+      </div>
+    </template>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function page(){return{
+  endpoints:[
+    {url:'/api/omniroute/providers',label:'Anbieter',help:'Verbundene KI-Anbieter und deren Verfügbarkeit.',emptyTitle:'Keine Anbieter konfiguriert',emptyText:'Hinterlegen Sie Zugangsdaten für das KI-Gateway in den Einstellungen, um Anbieter zu nutzen.'},
+    {url:'/api/omniroute/models',label:'Modelle',help:'Modelle, die für Text/Bild/weitere Aufgaben verfügbar sind.',emptyTitle:'Keine Modelle verfügbar',emptyText:'Sobald Anbieter konfiguriert sind, werden deren Modelle hier angezeigt.'},
+    {url:'/api/omniroute/routing/policies',label:'Routing-Regeln',help:'Regeln, welches Modell für welche Aufgabe verwendet wird.',emptyTitle:'Keine Routing-Regeln',emptyText:'Es sind noch keine Regeln hinterlegt. Standardrouting wird verwendet, sofern verfügbar.'},
+    {url:'/api/omniroute/stats',label:'Nutzungsübersicht',help:'Statistiken zu Anfragen und Nutzung (falls verfügbar).',emptyTitle:'Noch keine Nutzungsdaten',emptyText:'Sobald KI-Anfragen laufen, erscheinen hier Auswertungen.'}
+  ],
+  async loadAll(){await Promise.all(this.endpoints.map(e=>this.loadEp(e)));},
+  async loadEp(ep){
+    ep.state='loading'; ep.error=''; ep.data=null; ep.rows=null; ep.cols=[];
+    try{
+      const d=await apiFetch(ep.url); ep.data=d;
+      const arr = Array.isArray(d)?d:(d.items||d.providers||d.models||d.policies||null);
+      if(Array.isArray(arr) && arr.length===0){ep.state='empty'; return;}
+      const emptyObj = d && typeof d==='object' && !Array.isArray(d) && Object.keys(d).length===0;
+      if(d==null || emptyObj){ep.state='empty'; return;}
+      if(Array.isArray(arr) && arr.length && typeof arr[0]==='object'){ ep.rows=arr.slice(0,50); ep.cols=Object.keys(arr[0]).slice(0,6); }
+      ep.state='ok';
+    }catch(e){ ep.state='error'; ep.error=e.message; }
+  },
+  stateBadge(s){return s==='ok'?'badge-green':(s==='error'?'badge-red':(s==='empty'?'badge-amber':'badge-slate'));},
+  stateLabel(s){return s==='ok'?'Verfügbar':(s==='error'?'Fehler':(s==='empty'?'Nicht konfiguriert / leer':'Lädt…'));},
+  formatCell(v){if(v==null) return '—'; if(typeof v==='boolean') return v?'Ja':'Nein'; if(typeof v==='object') return JSON.stringify(v); return String(v);}
+}}
+</script>
+{% endblock %}

@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Internal Communication | Omni-Core{% endblock %}
+{% block content %}
+<div x-data="eventBusPage()" x-init="init()" class="space-y-5 max-w-7xl mx-auto">
+  <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
+    <div><h1 class="text-2xl font-bold">Internal Communication Architecture</h1><p class="text-slate-400">Event Bus (Pub/Sub), Modul-Kommunikation, Dead-Letter-Queue, Replay & Tracing (Phase 4)</p></div>
+    <div class="flex gap-2"><button @click="load()" class="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded text-sm">Aktualisieren</button><button @click="replay()" class="bg-indigo-600 hover:bg-indigo-500 px-4 py-2 rounded text-sm">Dead-Letter Replay</button></div>
+  </div>
+
+  <template x-if="msg"><div class="rounded border px-3 py-2 text-sm" :class="err?'border-red-700 bg-red-900/30 text-red-200':'border-emerald-700 bg-emerald-900/20 text-emerald-200'" x-text="msg"></div></template>
+
+  <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-lg p-4"><div class="text-xs text-slate-400 uppercase">Status</div><div class="mt-1 font-semibold" :class="stats.running?'text-emerald-400':'text-amber-400'" x-text="stats.running?'Running':'Stopped/Init'"></div></div>
+    <div class="bg-slate-900 border border-slate-800 rounded-lg p-4"><div class="text-xs text-slate-400 uppercase">Published</div><div class="mt-1 text-2xl font-bold" x-text="stats.published ?? 0"></div></div>
+    <div class="bg-slate-900 border border-slate-800 rounded-lg p-4"><div class="text-xs text-slate-400 uppercase">Processed</div><div class="mt-1 text-2xl font-bold" x-text="stats.processed ?? 0"></div></div>
+    <div class="bg-slate-900 border border-slate-800 rounded-lg p-4"><div class="text-xs text-slate-400 uppercase">Failed</div><div class="mt-1 text-2xl font-bold" :class="(stats.failed||0)>0?'text-red-400':'text-emerald-400'" x-text="stats.failed ?? 0"></div></div>
+    <div class="bg-slate-900 border border-slate-800 rounded-lg p-4"><div class="text-xs text-slate-400 uppercase">Dead Letter</div><div class="mt-1 text-2xl font-bold" :class="(stats.dead_letter_size||0)>0?'text-amber-400':'text-emerald-400'" x-text="stats.dead_letter_size ?? 0"></div></div>
+  </div>
+
+  <div class="grid lg:grid-cols-2 gap-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-lg p-4">
+      <h2 class="font-semibold mb-2">Geladene Module & Subscriber</h2>
+      <div class="overflow-auto max-h-80 border border-slate-800 rounded mb-3"><table class="w-full text-xs"><thead class="text-slate-400 bg-slate-950/60"><tr><th class="p-2 text-left">Modul</th><th class="p-2 text-left">Typ</th><th class="p-2 text-left">Status</th></tr></thead><tbody>
+        <template x-for="m in modules" :key="m.name"><tr class="border-t border-slate-800"><td class="p-2" x-text="m.name"></td><td class="p-2" x-text="m.type"></td><td class="p-2" :class="m.status==='active'?'text-emerald-400':'text-slate-400'" x-text="m.status"></td></tr></template>
+      </tbody></table></div>
+      <div class="text-xs text-slate-400">Subscriber-Health / Queue: <span x-text="JSON.stringify({queue_size: stats.queue_size, subscriber_count: stats.subscriber_count, subscribers: subHealth})"></span></div>
+    </div>
+    <div class="bg-slate-900 border border-slate-800 rounded-lg p-4">
+      <h2 class="font-semibold mb-2">Event-Schema & Topics (Beispiele)</h2>
+      <ul class="text-sm text-slate-300 list-disc ml-5 space-y-1">
+        <li><code>import.completed|failed</code> (matterhorn_importer → *) – entity_id/run, counts</li>
+        <li><code>gtin.lookup_completed</code> (gtin_intelligence) – gtin, valid, status</li>
+        <li><code>content.generated</code> (content_engine) – sku, channels, count</li>
+        <li><code>bundle.generated</code>, <code>iam.user_created</code>, <code>job.executed</code></li>
+      </ul>
+      <div class="text-xs text-slate-400 mt-2">Jedes Event: event_id, type, timestamp, source/target_module, entity_id, correlation/trace_id, schema_version, payload, status/retries.</div>
+      <pre class="mt-2 text-xs bg-slate-950 border border-slate-800 rounded p-3 overflow-auto max-h-48" x-text="JSON.stringify(stats,null,2)"></pre>
+    </div>
+  </div>
+
+  <div class="grid lg:grid-cols-2 gap-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-lg p-4"><h2 class="font-semibold mb-2">Letzte Events (persistiert/logs)</h2><pre class="text-xs bg-slate-950 border border-slate-800 rounded p-3 overflow-auto max-h-96" x-text="JSON.stringify(recent,null,2)"></pre></div>
+    <div class="bg-slate-900 border border-slate-800 rounded-lg p-4"><h2 class="font-semibold mb-2">Dead Letter Queue</h2><pre class="text-xs bg-slate-950 border border-slate-800 rounded p-3 overflow-auto max-h-96" x-text="JSON.stringify(deadLetter,null,2)"></pre></div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function eventBusPage(){
+  return {stats:{},modules:[],subHealth:{},recent:[],deadLetter:[],msg:'',err:false,
+    async init(){await this.load(); setInterval(()=>this.load(),10000);},
+    notify(m,e=false){this.msg=m;this.err=e;setTimeout(()=>{if(this.msg===m)this.msg='';},5000);},
+    async load(){try{this.stats=await apiFetch('/api/events/stats');}catch(e){this.stats={running:false};} try{const m=await apiFetch('/api/control-center/modules'); this.modules=m.modules||[]; this.subHealth=m.subscribers||{};}catch(e){this.modules=[];} try{this.recent=await apiFetch('/api/events/recent?limit=50');}catch(e){this.recent=[];} try{this.deadLetter=await apiFetch('/api/events/dead-letter');}catch(e){this.deadLetter=[];}},
+    async replay(){try{const r=await apiFetch('/api/events/dead-letter/replay',{method:'POST'}); this.notify('Replay: '+(r.replayed||0)+' Events.'); await this.load();}catch(e){this.notify('Replay fehlgeschlagen: '+e.message,true);}}
+  }
+}
+</script>
+{% endblock %}

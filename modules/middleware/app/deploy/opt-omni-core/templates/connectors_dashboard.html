@@ -1,0 +1,494 @@
+{% extends "base.html" %}
+{% block title %}Sales Channels & Connector Management | Omni-Core{% endblock %}
+{% block content %}
+<div x-data="connectorsApp()" x-init="init()" class="space-y-6 max-w-7xl mx-auto">
+  <!-- Top Header -->
+  <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
+    <div>
+      <div class="text-xs uppercase font-bold tracking-wider text-indigo-400 mb-1">Sales Channels · Integration Architecture</div>
+      <h1 class="text-3xl font-extrabold tracking-tight">Connector Management Center</h1>
+      <p class="text-slate-400 mt-1">Zentrale Verwaltung sämtlicher selbstentwickelter Plattform-Connectoren (Pucha Connector SDK standardisiert).</p>
+    </div>
+    <div class="flex gap-2">
+      <button @click="openNewAccountModal()" class="bg-indigo-600 hover:bg-indigo-500 px-4 py-2 rounded-lg text-sm font-semibold shadow-lg shadow-indigo-600/20">Account anbinden</button>
+      <button @click="refreshAll()" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 px-4 py-2 rounded-lg text-sm font-medium">Aktualisieren</button>
+    </div>
+  </div>
+
+  <!-- Global Metrics -->
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-sm">
+      <div class="text-xs font-medium text-slate-400 uppercase">Registrierte Connectoren</div>
+      <div class="text-2xl font-black mt-2 text-slate-100" x-text="connectors.length"></div>
+      <div class="text-xs text-emerald-400 mt-1">11 Plattformen im SDK integriert</div>
+    </div>
+    <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-sm">
+      <div class="text-xs font-medium text-slate-400 uppercase">Verbundene Accounts</div>
+      <div class="text-2xl font-black mt-2 text-indigo-400" x-text="accounts.length"></div>
+      <div class="text-xs text-slate-400 mt-1"><span x-text="accounts.filter(a=>a.is_active).length"></span> aktive Shops</div>
+    </div>
+    <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-sm">
+      <div class="text-xs font-medium text-slate-400 uppercase">Exportierbare Produkte</div>
+      <div class="text-2xl font-black mt-2 text-slate-100" x-text="productCount"></div>
+      <div class="text-xs text-slate-400 mt-1">Canonical Products im Store</div>
+    </div>
+    <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-sm">
+      <div class="text-xs font-medium text-slate-400 uppercase">Queue & Jobs</div>
+      <div class="text-2xl font-black mt-2 text-amber-400" x-text="exports.filter(e=>e.status==='pending'||e.status==='processing').length"></div>
+      <div class="text-xs text-slate-400 mt-1"><span x-text="exports.length"></span> Exporte protokolliert</div>
+    </div>
+  </div>
+
+  <!-- Messages -->
+  <template x-if="msg">
+    <div class="rounded-xl border p-4 text-sm flex items-center justify-between" :class="err ? 'border-red-800/80 bg-red-950/40 text-red-200' : 'border-emerald-800/80 bg-emerald-950/40 text-emerald-200'">
+      <div x-text="msg"></div>
+      <button @click="msg=''" class="text-xs opacity-70 hover:opacity-100">✕</button>
+    </div>
+  </template>
+
+  <!-- Connectors Grid -->
+  <div>
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-xl font-bold">Plattform-Connectoren</h2>
+      <div class="text-xs text-slate-400">Standardisierte Connector-Adapter mit einheitlicher Export-Pipeline</div>
+    </div>
+    <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <template x-for="c in connectors" :key="c.connector_id">
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 hover:border-slate-700 transition flex flex-col justify-between shadow-sm">
+          <div>
+            <div class="flex items-start justify-between">
+              <div>
+                <h3 class="font-bold text-base text-slate-100" x-text="c.platform_name"></h3>
+                <div class="text-xs font-mono text-slate-400 mt-0.5" x-text="c.connector_id"></div>
+              </div>
+              <span class="text-[10px] font-semibold px-2 py-0.5 rounded border"
+                :class="getBadgeClass(c.connector_id)">
+                <span x-text="getStatusLabel(c.connector_id)"></span>
+              </span>
+            </div>
+
+            <p class="text-xs text-slate-400 mt-3 line-clamp-2">
+              API-Version <span class="font-mono text-slate-300" x-text="c.api_version"></span> · SDK v<span x-text="c.version"></span>
+            </p>
+
+            <!-- Capabilities pills -->
+            <div class="mt-3 flex flex-wrap gap-1">
+              <template x-for="cap in (c.capabilities || []).slice(0, 5)" :key="cap">
+                <span class="text-[9px] px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700 text-slate-300 font-mono" x-text="cap.replace('_', ' ')"></span>
+              </template>
+              <template x-if="(c.capabilities || []).length > 5">
+                <span class="text-[9px] px-1.5 py-0.5 rounded bg-slate-800/60 text-slate-400" x-text="'+' + (c.capabilities.length - 5)"></span>
+              </template>
+            </div>
+          </div>
+
+          <!-- Bottom Actions -->
+          <div class="mt-5 pt-4 border-t border-slate-800/80 flex items-center justify-between text-xs">
+            <button @click="testConnector(c.connector_id)" :disabled="testing[c.connector_id]" class="text-indigo-400 hover:text-indigo-300 font-medium disabled:opacity-50">
+              <span x-show="!testing[c.connector_id]">Verbindung testen</span>
+              <span x-show="testing[c.connector_id]">Prüfe…</span>
+            </button>
+            <button @click="selectConnector(c)" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 px-3 py-1.5 rounded-lg text-slate-200 font-medium">
+              Verwalten
+            </button>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
+
+  <!-- Detail Drawer / Modal for selected connector -->
+  <div x-show="activeConnector" x-cloak class="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-6">
+    <div class="flex items-center justify-between border-b border-slate-800 pb-4">
+      <div>
+        <div class="flex items-center gap-3">
+          <h2 class="text-2xl font-bold" x-text="activeConnector ? activeConnector.platform_name : ''"></h2>
+          <span class="text-xs px-2.5 py-0.5 rounded border border-indigo-800 bg-indigo-950/60 text-indigo-300 font-mono" x-text="activeConnector ? activeConnector.connector_id : ''"></span>
+        </div>
+        <p class="text-sm text-slate-400 mt-1">Detailkonfiguration, Mapping & Export-Steuerung</p>
+      </div>
+      <button @click="activeConnector=null" class="text-slate-400 hover:text-white px-3 py-1.5 rounded-lg bg-slate-800 text-sm">Schließen</button>
+    </div>
+
+    <!-- Connector Management Tabs -->
+    <div class="flex gap-2 border-b border-slate-800 pb-2 text-sm">
+      <button @click="activeTab='accounts'" :class="activeTab==='accounts'?'bg-indigo-600 text-white':'bg-slate-800 text-slate-400'" class="px-3 py-1.5 rounded-lg font-medium">Verbundene Konten</button>
+      <button @click="activeTab='mapping'" :class="activeTab==='mapping'?'bg-indigo-600 text-white':'bg-slate-800 text-slate-400'" class="px-3 py-1.5 rounded-lg font-medium">Feldmapping</button>
+      <button @click="activeTab='export'" :class="activeTab==='export'?'bg-indigo-600 text-white':'bg-slate-800 text-slate-400'" class="px-3 py-1.5 rounded-lg font-medium">Export Center</button>
+      <button @click="activeTab='monitoring'" :class="activeTab==='monitoring'?'bg-indigo-600 text-white':'bg-slate-800 text-slate-400'" class="px-3 py-1.5 rounded-lg font-medium">Monitoring & Logs</button>
+    </div>
+
+    <!-- Tab 1: Accounts -->
+    <div x-show="activeTab==='accounts'" class="space-y-4">
+      <div class="flex justify-between items-center">
+        <h3 class="font-semibold text-slate-200">Shop- / Seller-Konten</h3>
+        <button @click="openAccountFormForCurrent()" class="bg-slate-800 hover:bg-slate-700 text-xs px-3 py-1.5 rounded border border-slate-700">+ Neues Konto hinzufügen</button>
+      </div>
+      <div class="overflow-x-auto border border-slate-800 rounded-lg">
+        <table class="w-full text-xs text-left">
+          <thead class="bg-slate-950/60 text-slate-400">
+            <tr>
+              <th class="p-3">Name</th>
+              <th class="p-3">Marktplatz</th>
+              <th class="p-3">Modus</th>
+              <th class="p-3">Status</th>
+              <th class="p-3 text-right">Aktionen</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="a in currentAccounts" :key="a.id">
+              <tr class="border-t border-slate-800 hover:bg-slate-800/30">
+                <td class="p-3 font-medium text-slate-100" x-text="a.account_name"></td>
+                <td class="p-3 font-mono" x-text="a.marketplace"></td>
+                <td class="p-3">
+                  <span class="px-2 py-0.5 rounded text-[10px]" :class="a.is_sandbox ? 'bg-amber-950/60 text-amber-300 border border-amber-800' : 'bg-emerald-950/60 text-emerald-300 border border-emerald-800'" x-text="a.is_sandbox ? 'Sandbox' : 'Produktiv'"></span>
+                </td>
+                <td class="p-3">
+                  <span class="px-2 py-0.5 rounded text-[10px]" :class="a.is_active ? 'text-emerald-400' : 'text-slate-500'" x-text="a.is_active ? 'Aktiv' : 'Deaktiviert'"></span>
+                </td>
+                <td class="p-3 text-right space-x-2">
+                  <button @click="deleteAccount(a.id)" class="text-red-400 hover:text-red-300">Löschen</button>
+                </td>
+              </tr>
+            </template>
+            <tr x-show="currentAccounts.length===0">
+              <td colspan="5" class="p-4 text-center text-slate-500">Keine Konten hinterlegt. Klicken Sie auf „Neues Konto hinzufügen“.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Tab 2: Mapping -->
+    <div x-show="activeTab==='mapping'" class="space-y-4">
+      <div class="flex justify-between items-center">
+        <div>
+          <h3 class="font-semibold text-slate-200">Feldmapping (Canonical Product -> Plattform)</h3>
+          <p class="text-xs text-slate-400">Definiert, wie normalisierte Produktdaten auf Zielattribute abgebildet werden.</p>
+        </div>
+        <button @click="saveNewMapping()" class="bg-indigo-600 hover:bg-indigo-500 text-xs px-3 py-1.5 rounded font-medium">+ Mapping hinzufügen</button>
+      </div>
+
+      <div class="grid md:grid-cols-3 gap-2 p-3 bg-slate-950/60 border border-slate-800 rounded-lg text-xs">
+        <input x-model="mapForm.canonical_field" placeholder="Canonical Feld (z.B. sku, title, ean, price)" class="bg-slate-800 border border-slate-700 rounded px-2.5 py-1.5">
+        <input x-model="mapForm.channel_field" placeholder="Plattform Feld (z.B. productNumber, item_name)" class="bg-slate-800 border border-slate-700 rounded px-2.5 py-1.5">
+        <select x-model="mapForm.mapping_type" class="bg-slate-800 border border-slate-700 rounded px-2.5 py-1.5">
+          <option value="direct">Direct Copy</option>
+          <option value="transform">Transform / Template</option>
+          <option value="ai_generated">AI Generated (OmniRoute)</option>
+        </select>
+      </div>
+
+      <div class="overflow-x-auto border border-slate-800 rounded-lg">
+        <table class="w-full text-xs text-left">
+          <thead class="bg-slate-950/60 text-slate-400">
+            <tr>
+              <th class="p-3">Canonical Quellfeld</th>
+              <th class="p-3">Plattform Zielfeld</th>
+              <th class="p-3">Regel / Typ</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="m in currentMappings" :key="m.id">
+              <tr class="border-t border-slate-800">
+                <td class="p-3 font-mono text-slate-300" x-text="m.canonical_field"></td>
+                <td class="p-3 font-mono text-indigo-300" x-text="m.channel_field"></td>
+                <td class="p-3" x-text="m.mapping_type"></td>
+              </tr>
+            </template>
+            <tr x-show="currentMappings.length===0">
+              <td colspan="3" class="p-4 text-center text-slate-500">Standard-Mappings aktiv (keine manuellen Overrides).</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Tab 3: Export Center -->
+    <div x-show="activeTab==='export'" class="space-y-4">
+      <h3 class="font-semibold text-slate-200">Produkte exportieren</h3>
+      <div class="grid md:grid-cols-2 gap-4">
+        <div class="bg-slate-950/60 border border-slate-800 rounded-lg p-4 space-y-3">
+          <h4 class="font-medium text-sm text-slate-300">Einzelartikel Export</h4>
+          <input x-model="exportSku" placeholder="Produkt-SKU eingeben" class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-xs">
+          <button @click="triggerExport(exportSku)" class="w-full bg-emerald-600 hover:bg-emerald-500 text-xs py-2 rounded font-semibold text-white">Artikel jetzt übertragen</button>
+        </div>
+        <div class="bg-slate-950/60 border border-slate-800 rounded-lg p-4 space-y-3">
+          <h4 class="font-medium text-sm text-slate-300">Katalog-Synchronisation</h4>
+          <p class="text-xs text-slate-400">Synchronisiert alle aktiven Canonical Products mit dem gewählten Verkaufskanal über die persistente Job Queue.</p>
+          <button @click="triggerBulkExport()" class="w-full bg-indigo-600 hover:bg-indigo-500 text-xs py-2 rounded font-semibold text-white">Gesamtkatalog synchronisieren</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab 4: Monitoring -->
+    <div x-show="activeTab==='monitoring'" class="space-y-4">
+      <h3 class="font-semibold text-slate-200">Exporthistorie & Übertragungsprotokoll</h3>
+      <div class="overflow-x-auto border border-slate-800 rounded-lg">
+        <table class="w-full text-xs text-left">
+          <thead class="bg-slate-950/60 text-slate-400">
+            <tr>
+              <th class="p-3">SKU</th>
+              <th class="p-3">Status</th>
+              <th class="p-3">Remote Listing ID</th>
+              <th class="p-3">Datum</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="ex in currentExports" :key="ex.id">
+              <tr class="border-t border-slate-800">
+                <td class="p-3 font-mono font-medium text-slate-200" x-text="ex.sku"></td>
+                <td class="p-3">
+                  <span class="px-2 py-0.5 rounded text-[10px]" :class="ex.status==='completed' ? 'text-emerald-400 bg-emerald-950/60 border border-emerald-800' : (ex.status==='failed' ? 'text-red-400 bg-red-950/60 border border-red-800' : 'text-amber-400 bg-amber-950/60 border border-amber-800')" x-text="ex.status"></span>
+                </td>
+                <td class="p-3 font-mono text-slate-400" x-text="ex.remote_listing_id || '—'"></td>
+                <td class="p-3 text-slate-500" x-text="ex.created_at"></td>
+              </tr>
+            </template>
+            <tr x-show="currentExports.length===0">
+              <td colspan="4" class="p-4 text-center text-slate-500">Keine Exporthistorie für diesen Connector vorhanden.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Account Modal -->
+  <div x-show="showAccountModal" x-cloak class="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 max-w-md w-full space-y-4 shadow-2xl">
+      <h3 class="text-lg font-bold text-slate-100">Verkaufskanal-Konto anbinden</h3>
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="block text-slate-400 mb-1">Plattform</label>
+          <select x-model="accForm.connector_id" class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-slate-200">
+            <template x-for="c in connectors" :key="c.connector_id">
+              <option :value="c.connector_id" x-text="c.platform_name"></option>
+            </template>
+          </select>
+        </div>
+        <div>
+          <label class="block text-slate-400 mb-1">Kontoname</label>
+          <input x-model="accForm.account_name" placeholder="z.B. Shopware DE Hauptstore" class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-slate-200">
+        </div>
+        <div>
+          <label class="block text-slate-400 mb-1">Marktplatz / Land</label>
+          <input x-model="accForm.marketplace" placeholder="DE, FR, IT, Global" class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-slate-200">
+        </div>
+        <div>
+          <label class="block text-slate-400 mb-1">API Key / Client ID</label>
+          <input x-model="accForm.client_id" placeholder="Client ID / Access Token" class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-slate-200">
+        </div>
+        <div>
+          <label class="block text-slate-400 mb-1">API Secret / Client Secret</label>
+          <input x-model="accForm.client_secret" type="password" placeholder="Client Secret / Token" class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-slate-200">
+        </div>
+        <div class="flex items-center gap-4 pt-1">
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" x-model="accForm.is_sandbox"> Sandbox / Testmodus
+          </label>
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" x-model="accForm.is_active"> Aktiviert
+          </label>
+        </div>
+      </div>
+      <div class="flex justify-end gap-2 pt-2 border-t border-slate-800">
+        <button @click="showAccountModal=false" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-300">Abbrechen</button>
+        <button @click="saveAccount()" class="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-xs font-semibold text-white">Speichern</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function connectorsApp() {
+  return {
+    connectors: [],
+    accounts: [],
+    exports: [],
+    productCount: 0,
+    activeConnector: null,
+    activeTab: 'accounts',
+    showAccountModal: false,
+    testing: {},
+    msg: '',
+    err: false,
+    exportSku: '',
+    accForm: { connector_id: 'pucha_shopware', account_name: '', marketplace: 'DE', client_id: '', client_secret: '', is_sandbox: false, is_active: true },
+    mapForm: { canonical_field: '', channel_field: '', mapping_type: 'direct' },
+    allMappings: [],
+
+    async init() {
+      await this.refreshAll();
+    },
+
+    get currentAccounts() {
+      if (!this.activeConnector) return [];
+      return this.accounts.filter(a => a.connector_id === this.activeConnector.connector_id);
+    },
+
+    get currentMappings() {
+      if (!this.activeConnector) return [];
+      return this.allMappings.filter(m => m.connector_id === this.activeConnector.connector_id);
+    },
+
+    get currentExports() {
+      if (!this.activeConnector) return [];
+      return this.exports.filter(e => e.connector_id === this.activeConnector.connector_id);
+    },
+
+    async refreshAll() {
+      try {
+        const [cData, aData, eData, pData, mData] = await Promise.all([
+          apiFetch('/api/connectors'),
+          apiFetch('/api/connectors/accounts').catch(() => []),
+          apiFetch('/api/connectors/exports').catch(() => []),
+          apiFetch('/api/stats').catch(() => ({ product_count: 0 })),
+          apiFetch('/api/connectors/mappings').catch(() => [])
+        ]);
+        this.connectors = cData.connectors || [];
+        this.accounts = aData || [];
+        this.exports = eData || [];
+        this.productCount = pData.product_count || 0;
+        this.allMappings = mData || [];
+      } catch (e) {
+        this.msg = 'Fehler beim Laden: ' + e.message;
+        this.err = true;
+      }
+    },
+
+    getStatusLabel(cid) {
+      const accs = this.accounts.filter(a => a.connector_id === cid);
+      if (accs.length === 0) return 'Nicht konfiguriert';
+      return accs.some(a => a.is_active) ? 'Aktiv' : 'Pausiert';
+    },
+
+    getBadgeClass(cid) {
+      const accs = this.accounts.filter(a => a.connector_id === cid);
+      if (accs.length === 0) return 'bg-slate-800 text-slate-400 border-slate-700';
+      return accs.some(a => a.is_active)
+        ? 'bg-emerald-950/60 text-emerald-300 border-emerald-800'
+        : 'bg-amber-950/60 text-amber-300 border-amber-800';
+    },
+
+    selectConnector(c) {
+      this.activeConnector = c;
+      this.activeTab = 'accounts';
+    },
+
+    openNewAccountModal() {
+      this.accForm = { connector_id: this.connectors[0]?.connector_id || 'pucha_shopware', account_name: '', marketplace: 'DE', client_id: '', client_secret: '', is_sandbox: false, is_active: true };
+      this.showAccountModal = true;
+    },
+
+    openAccountFormForCurrent() {
+      this.accForm = { connector_id: this.activeConnector ? this.activeConnector.connector_id : 'pucha_shopware', account_name: '', marketplace: 'DE', client_id: '', client_secret: '', is_sandbox: false, is_active: true };
+      this.showAccountModal = true;
+    },
+
+    async testConnector(cid) {
+      this.testing[cid] = true;
+      this.msg = '';
+      this.err = false;
+      try {
+        const res = await apiFetch(`/api/connectors/${cid}/test`, { method: 'POST' });
+        this.msg = `${cid}: ${res.message || 'Test abgeschlossen.'}`;
+        this.err = !res.healthy;
+      } catch (e) {
+        this.msg = `Test fehlgeschlagen: ${e.message}`;
+        this.err = true;
+      } finally {
+        this.testing[cid] = false;
+      }
+    },
+
+    async saveAccount() {
+      try {
+        await apiFetch('/api/connectors/accounts', {
+          method: 'POST',
+          body: JSON.stringify(this.accForm)
+        });
+        this.showAccountModal = false;
+        this.msg = 'Konto erfolgreich gespeichert.';
+        this.err = false;
+        await this.refreshAll();
+      } catch (e) {
+        this.msg = 'Fehler beim Speichern: ' + e.message;
+        this.err = true;
+      }
+    },
+
+    async deleteAccount(aid) {
+      if (!confirm('Möchten Sie dieses Konto wirklich entfernen?')) return;
+      try {
+        await apiFetch(`/api/connectors/accounts/${aid}`, { method: 'DELETE' });
+        this.msg = 'Konto entfernt.';
+        this.err = false;
+        await this.refreshAll();
+      } catch (e) {
+        this.msg = 'Fehler beim Löschen: ' + e.message;
+        this.err = true;
+      }
+    },
+
+    async saveNewMapping() {
+      if (!this.mapForm.canonical_field || !this.mapForm.channel_field) return;
+      try {
+        await apiFetch('/api/connectors/mappings', {
+          method: 'POST',
+          body: JSON.stringify({
+            connector_id: this.activeConnector.connector_id,
+            canonical_field: this.mapForm.canonical_field,
+            channel_field: this.mapForm.channel_field,
+            mapping_type: this.mapForm.mapping_type
+          })
+        });
+        this.mapForm.canonical_field = '';
+        this.mapForm.channel_field = '';
+        this.msg = 'Mapping-Regel angelegt.';
+        this.err = false;
+        await this.refreshAll();
+      } catch (e) {
+        this.msg = 'Fehler beim Speichern: ' + e.message;
+        this.err = true;
+      }
+    },
+
+    async triggerExport(sku) {
+      if (!sku) return;
+      try {
+        await apiFetch(`/api/connectors/${this.activeConnector.connector_id}/export`, {
+          method: 'POST',
+          body: JSON.stringify({ sku: sku })
+        });
+        this.msg = `Export für SKU ${sku} in die Queue eingereiht.`;
+        this.err = false;
+        this.exportSku = '';
+        await this.refreshAll();
+      } catch (e) {
+        this.msg = 'Export fehlgeschlagen: ' + e.message;
+        this.err = true;
+      }
+    },
+
+    async triggerBulkExport() {
+      if (!confirm(`Gesamten Katalog an ${this.activeConnector.platform_name} übertragen?`)) return;
+      try {
+        await apiFetch(`/api/connectors/${this.activeConnector.connector_id}/export`, {
+          method: 'POST',
+          body: JSON.stringify({ bulk: true })
+        });
+        this.msg = 'Katalogexport in Hintergrund-Queue eingereiht.';
+        this.err = false;
+        await this.refreshAll();
+      } catch (e) {
+        this.msg = 'Katalogexport fehlgeschlagen: ' + e.message;
+        this.err = true;
+      }
+    }
+  };
+}
+</script>
+{% endblock %}

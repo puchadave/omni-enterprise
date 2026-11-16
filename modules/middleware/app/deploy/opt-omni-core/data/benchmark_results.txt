@@ -1,0 +1,7 @@
+RAM Idle: 0KB
+API Response Time: Nicht erreichbar (Container eventuell noch Start)
+DB Config: POSTGRES_MAX_CONNECTIONS=20
+DB Config: POSTGRES_SHARED_BUFFERS=512MB
+BullMQ: Nicht verfügbar (Optional - kann nachträglich gestartet werden)
+LXC Allocated RAM: 4096MB
+CPU Allocated: 2 Cores

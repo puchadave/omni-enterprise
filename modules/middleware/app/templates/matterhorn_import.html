@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block title %}Lieferanten-Import (Matterhorn) | OMNI-CORE{% endblock %}
+{% block content %}
+<div x-data="mhPage()" x-init="init()" class="space-y-4 max-w-7xl mx-auto">
+  <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
+    <div>
+      <h1 class="text-2xl md:text-3xl font-bold">Lieferanten-Import (Matterhorn)</h1>
+      <p class="text-slate-400">XML/CSV/JSON per Feed-URL oder Datei-Upload prüfen und verlustfrei importieren (Varianten, Kategorien, dynamische Attribute, Logistikfelder).</p>
+    </div>
+    <button @click="refresh()" class="btn btn-secondary">Aktualisieren</button>
+  </div>
+
+  <template x-if="msg"><div class="banner" :class="err?'banner-error':'banner-success'" x-text="msg"></div></template>
+
+  <div class="grid lg:grid-cols-2 gap-4">
+    <div class="card p-4 space-y-4">
+      <h2 class="font-semibold">1. Quelle & Vorschau</h2>
+      <div>
+        <label class="label">Feed-Adresse (URL) oder lokaler Pfad</label>
+        <input x-model="feedUrl" class="input font-mono text-sm" placeholder="https://… oder /app/data/feed.xml">
+        <p class="help-text">Für Datei-Upload unten die Datei wählen; bei Upload hat die Datei Vorrang.</p>
+      </div>
+      <div>
+        <label class="label">Datei-Upload (XML/CSV/JSON)</label>
+        <input type="file" @change="onFile($event)" class="input" accept=".xml,.csv,.json,.txt">
+        <p class="help-text" x-show="fileName">Ausgewählt: <span class="font-mono" x-text="fileName"></span></p>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <button @click="saveFeed()" class="btn btn-secondary" :disabled="busy">Feed-Adresse speichern</button>
+        <button @click="runPreview()" :disabled="busy" class="btn btn-primary"><span x-show="!busy">Vorschau & Prüfung starten</span><span x-show="busy">Wird geprüft…</span></button>
+      </div>
+      <div class="banner banner-warn text-sm">Sicherheitsbestand (Puffer) wird beim Import berücksichtigt. Es werden nur reale Quelldaten verarbeitet; unbekannte Felder werden als dynamische Attribute übernommen.</div>
+    </div>
+
+    <div class="card p-4 space-y-4">
+      <h2 class="font-semibold">2. Import & Sync-Regeln</h2>
+      <div class="grid md:grid-cols-2 gap-3">
+        <div>
+          <label class="label">Importmodus</label>
+          <select x-model="mode" class="select">
+            <option value="safe">Sicher – nur validierte Datensätze</option>
+            <option value="partial">Teilimport – fehlerhafte überspringen</option>
+            <option value="full">Vollimport – komplette Übernahme</option>
+            <option value="stock_only">Nur Bestand synchronisieren</option>
+            <option value="ek_only">Nur EK/Preise synchronisieren</option>
+            <option value="dry_run">Testlauf – keine Änderungen</option>
+          </select>
+        </div>
+        <div class="space-y-2">
+          <label class="label">Ausführung & Schutz</label>
+          <label class="flex items-center gap-2 text-sm"><input type="checkbox" x-model="asyncJob" class="rounded"> Im Hintergrund ausführen</label>
+          <label class="flex items-start gap-2 text-sm"><input type="checkbox" x-model="confirmFull" class="mt-0.5 rounded"> <span>Vollimport ohne Vorschau bestätigen</span></label>
+          <label class="flex items-start gap-2 text-sm"><input type="checkbox" x-model="preserveSeo" class="mt-0.5 rounded"> <span>Manuelle SEO-Felder beibehalten</span></label>
+          <label class="flex items-start gap-2 text-sm"><input type="checkbox" x-model="preserveMappings" class="mt-0.5 rounded"> <span>Marktplatz-Zuordnungen beibehalten</span></label>
+        </div>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <button @click="runImport()" :disabled="busy" class="btn btn-primary"><span x-show="!busy">Import starten</span><span x-show="busy">Import läuft…</span></button>
+      </div>
+      <template x-if="importResult">
+        <div class="border border-slate-800 rounded-lg p-3 bg-slate-950/40 space-y-2">
+          <div class="flex items-center gap-2"><span class="badge" :class="uiBadgeClass(importResult.status)" x-text="uiStatusLabel(importResult.status)"></span><span class="text-sm text-slate-300">Importprotokoll</span></div>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+            <div class="p-2 rounded bg-slate-900/60"><div class="text-slate-400">Importiert</div><div class="font-semibold" x-text="importResult.imported ?? '—'"></div></div>
+            <div class="p-2 rounded bg-slate-900/60"><div class="text-slate-400">Aktualisiert</div><div class="font-semibold" x-text="importResult.updated ?? importResult.updated_count ?? '—'"></div></div>
+            <div class="p-2 rounded bg-slate-900/60"><div class="text-slate-400">Varianten verknüpft</div><div class="font-semibold" x-text="importResult.variants_linked ?? (importResult.summary&&importResult.summary.variants_linked) ?? '—'"></div></div>
+            <div class="p-2 rounded bg-slate-900/60"><div class="text-slate-400">Fehler/Übersprungen</div><div class="font-semibold"><span x-text="importResult.errors ?? 0"></span> / <span x-text="importResult.skipped ?? 0"></span></div></div>
+          </div>
+          <p class="text-sm text-slate-400" x-text="importSummary(importResult)"></p>
+          <details class="text-xs text-slate-500"><summary class="cursor-pointer hover:text-slate-300">Details & Fehlergründe</summary><pre class="mt-2 overflow-auto max-h-56" x-text="fmt(importResult)"></pre></details>
+        </div>
+      </template>
+    </div>
+  </div>
+
+  <div class="grid lg:grid-cols-2 gap-4">
+    <div class="card p-4">
+      <h2 class="font-semibold mb-2">Vorschau & Validierung</h2>
+      <template x-if="!preview"><div class="empty-state !py-8"><div class="icon">🔎</div><div class="title">Noch keine Vorschau</div><div class="text-sm">Starten Sie „Vorschau & Prüfung“, um Datensätze, Varianten/Attribute und Probleme vor dem Import zu sehen.</div><button class="btn btn-primary mt-3" @click="runPreview()" :disabled="busy">Vorschau starten</button></div></template>
+      <template x-if="preview">
+        <div class="space-y-2">
+          <div class="flex items-center gap-2"><span class="badge" :class="uiBadgeClass(preview.status)" x-text="uiStatusLabel(preview.status)"></span><span class="text-sm text-slate-400" x-text="previewSummary(preview)"></span></div>
+          <div class="grid grid-cols-3 gap-2 text-xs" x-show="preview.summary">
+            <div class="p-2 rounded bg-slate-900/60"><div class="text-slate-400">Gesamt/Gültig</div><div class="font-semibold"><span x-text="(preview.summary||{}).total ?? '—'"></span> / <span x-text="(preview.summary||{}).valid ?? '—'"></span></div></div>
+            <div class="p-2 rounded bg-slate-900/60"><div class="text-slate-400">Varianten</div><div class="font-semibold" x-text="(preview.summary||{}).variants_detected ?? '—'"></div></div>
+            <div class="p-2 rounded bg-slate-900/60"><div class="text-slate-400">Dyn. Attribute</div><div class="font-semibold" x-text="(preview.summary||{}).dynamic_attributes_detected ?? '—'"></div></div>
+          </div>
+          <template x-if="preview.status==='error' || preview.error"><div class="banner banner-error text-sm" x-text="preview.error || 'Vorschau fehlgeschlagen.'"></div></template>
+          <details class="text-xs text-slate-500" open><summary class="cursor-pointer hover:text-slate-300">Prüfergebnis & Beispiele</summary><pre class="mt-2 bg-slate-950 border border-slate-800 rounded p-2 overflow-auto max-h-[24rem]" x-text="fmt(preview)"></pre></details>
+        </div>
+      </template>
+    </div>
+
+    <div class="space-y-4">
+      <div class="card p-4">
+        <h2 class="font-semibold mb-2">Import-Verlauf / Protokolle</h2>
+        <template x-if="(runs||[]).length===0"><div class="empty-state !py-6"><div class="title">Noch keine Importe</div></div></template>
+        <div class="space-y-2" x-show="(runs||[]).length>0">
+          <template x-for="r in (runs||[]).slice(0,10)" :key="r.id||Math.random()"><div class="border-b border-slate-800 pb-2 text-sm"><div class="flex items-center justify-between"><div><div class="font-medium" x-text="'#'+(r.id||'?')+' · '+(r.mode||'import')"></div><div class="text-xs text-slate-500" x-text="fmtDate(r.started_at||r.created_at)"></div></div><span class="badge" :class="uiBadgeClass(r.status)" x-text="uiStatusLabel(r.status)"></span></div><div class="text-xs text-slate-400 mt-1" x-text="runLine(r)"></div></div></template>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function mhPage(){return{
+  busy:false,msg:'',err:false,feedUrl:'',mode:'safe',asyncJob:false,confirmFull:false,preserveSeo:true,preserveMappings:true,
+  file:null,fileName:'',status:null,preview:null,importResult:null,runs:[],previews:{items:[]},feeds:{items:[]},mappings:{items:[]},
+  fmt(d){try{return JSON.stringify(d,null,2);}catch(_){return String(d);} },
+  previewsList(){return Array.isArray(this.previews)?this.previews:(this.previews&&this.previews.items)||[];},
+  previewSummary(p){if(!p) return ''; if(p.status==='error') return 'Prüfung fehlgeschlagen.'; const c=p.summary||{}; return (c.total!=null?c.total+' Einträge':'Prüfung')+' geprüft'+(c.format?(' ('+c.format+')'):'')+'.';},
+  importSummary(r){if(!r) return ''; if(r.status==='queued') return 'Import im Hintergrund eingeplant.'; if(r.status==='blocked') return r.message||'Import blockiert (Vorschau/Bestätigung erforderlich).'; if(r.status==='error'||r.error) return r.error||'Import fehlgeschlagen.'; if(String(r.mode)==='dry_run'||r.dry_run||r.status==='dry_run') return 'Testlauf abgeschlossen – keine Daten geändert.'; return 'Import abgeschlossen.';},
+  runLine(r){const imp=r.imported ?? (r.summary_json&&r.summary_json.imported); const up=r.updated_count ?? r.updated; const err=r.errors ?? 0; const sk=r.skipped ?? 0; const v=r.variants_linked ?? 0; return `Importiert: ${imp??'—'}, Aktualisiert: ${up??'—'}, Varianten: ${v}, Fehler: ${err}, Übersprungen: ${sk}`;},
+  onFile(e){const f=e.target.files&&e.target.files[0]; this.file=f||null; this.fileName=f?f.name:'';},
+  async init(){ await this.refresh(); },
+  async refresh(){ try{ const [st,r,ph,f,m]=await Promise.all([apiFetch('/api/matterhorn/status').catch(()=>null), apiFetch('/api/import-runs?limit=20').catch(()=>[]), apiFetch('/api/matterhorn/previews?limit=20').catch(()=>({items:[]})), apiFetch('/api/matterhorn/feeds').catch(()=>({items:[]})), apiFetch('/api/matterhorn/mappings').catch(()=>({items:[]}))]); this.status=st; this.runs=Array.isArray(r)?r:(r.items||r.runs||[]); this.previews=ph||{items:[]}; this.feeds=f; this.mappings=m; if(!this.feedUrl && st && st.recent_previews && st.recent_previews[0]) this.feedUrl=st.recent_previews[0].feed_url||''; }catch(e){ this.msg=e.message; this.err=true; } },
+  async saveFeed(){ this.msg=''; this.err=false; if(!this.feedUrl){this.err=true; this.msg='Bitte Feed-Adresse eingeben.'; return;} this.busy=true; try{ await apiFetch('/api/matterhorn/feeds',{method:'POST',body:JSON.stringify({name:'Matterhorn Feed', feed_url:this.feedUrl, feed_type:'xml', enabled:true})}); await apiFetch('/api/matterhorn/config',{method:'PUT',body:JSON.stringify({config:{feed_url:{value:this.feedUrl}}})}).catch(()=>{}); this.msg='Feed-Adresse gespeichert.'; toast('Feed-Adresse gespeichert.','success'); await this.refresh(); }catch(e){ this.err=true; this.msg='Speichern nicht möglich: '+e.message; } this.busy=false; },
+  async runPreview(){ this.busy=true; this.msg=''; this.err=false; try{
+      if(this.file){ const fd=new FormData(); fd.append('file', this.file); this.preview=await apiFetch('/api/import/matterhorn/preview-upload?save=1&limit=50',{method:'POST',body:fd}); }
+      else { const q=this.feedUrl?('?feed_url='+encodeURIComponent(this.feedUrl)+'&save=1&limit=50'):'?save=1&limit=50'; this.preview=await apiFetch('/api/import/matterhorn/preview'+q); }
+      if(this.preview && (this.preview.status==='error'||this.preview.error)){ this.err=true; this.msg='Vorschau fehlgeschlagen: '+(this.preview.error||'Quelle prüfen.'); } else { this.msg='Vorschau abgeschlossen.'; toast('Vorschau abgeschlossen.','success'); }
+      await this.refresh();
+    }catch(e){ this.err=true; this.msg='Vorschau fehlgeschlagen: '+e.message; } this.busy=false; },
+  async runImport(){ if(this.mode==='full' && !this.confirmFull && !this.preview){ if(!confirm('Vollimport ohne Vorschau – fortfahren?')) return; }
+    this.busy=true; this.msg=''; this.err=false; this.importResult=null; try{
+      const sync_rules={mode:this.mode,preserve_manual_seo:this.preserveSeo,preserve_marketplace_mappings:this.preserveMappings};
+      if(this.file){ const fd=new FormData(); fd.append('file', this.file); fd.append('mode', this.mode); fd.append('dry_run', String(this.mode==='dry_run')); fd.append('sync_rules', JSON.stringify(sync_rules)); this.importResult=await apiFetch('/api/import/matterhorn/upload',{method:'POST',body:fd}); }
+      else { const body={mode:this.mode, feed_url:this.feedUrl||null, preview_id:(this.preview&&this.preview.preview_id)||null, confirm_full_without_preview:this.confirmFull, dry_run:this.mode==='dry_run', async_job:this.asyncJob, sync_rules}; this.importResult=await apiFetch('/api/import/matterhorn',{method:'POST',body:JSON.stringify(body)}); }
+      this.err = this.importResult.status==='error' || !!this.importResult.error; this.msg = this.importResult.status==='queued' ? 'Import eingeplant.' : (this.err?('Import fehlgeschlagen: '+(this.importResult.error||'Unbekannter Grund')):this.importSummary(this.importResult)); if(!this.err) toast(this.msg,'success'); await this.refresh();
+    }catch(e){ this.err=true; this.msg='Import fehlgeschlagen: '+e.message; } this.busy=false; }
+}}
+</script>
+{% endblock %}

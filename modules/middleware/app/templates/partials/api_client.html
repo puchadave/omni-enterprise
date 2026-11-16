@@ -1,0 +1,91 @@
+<script>
+  function getCookie(name){const parts=document.cookie.split(';').map(value=>value.trim());for(const part of parts){if(part.startsWith(name+'=')) return decodeURIComponent(part.slice(name.length+1));}return '';}
+  async function ensureCsrf(){let token=getCookie('csrf_token');if(!token){const data=await apiFetch('/api/auth/csrf',{_skipCsrf:true});token=data&&data.csrf_token||getCookie('csrf_token');}if(!token) throw new Error('Die Sicherheitsprüfung konnte nicht vorbereitet werden. Bitte laden Sie die Seite neu.');return token;}
+
+  function apiErrorDetail(data){
+    const detail=data&&typeof data==='object'?(data.detail??data.error??data.message??data.msg):data;
+    if(Array.isArray(detail)){
+      const labels={product_sku:'Produkt (SKU)', feed_url:'Feed-Adresse', title:'Titel', starts_at:'Startzeit', order_id:'Bestellnummer', channel:'Kanal'};
+      const messages=detail.map(item=>{
+        if(!item||typeof item!=='object') return String(item);
+        const loc=Array.isArray(item.loc)?item.loc.filter(x=>x!=='body'&&x!=='query'&&x!=='path').join('.') : '';
+        const key=loc.split('.').pop()||loc;
+        const field=labels[key]|| (key?key.replace(/_/g,' '):'Eingabe');
+        const msg=typeof item.msg==='string'?item.msg:'ist ungültig';
+        return field+': '+msg;
+      }).filter(Boolean);
+      return messages.length?'Bitte prüfen Sie Ihre Eingaben: '+messages.join(' · '):'';
+    }
+    if(detail&&typeof detail==='object'&&typeof detail.msg==='string') return detail.msg.trim();
+    if(typeof detail==='string'&&detail.trim()&&!/^[\[{]/.test(detail.trim())) return detail.trim().slice(0,280);
+    return '';
+  }
+
+  function friendlyApiError(data,status,statusText,url){
+    // network/parse handled by caller sometimes; normalize server payloads
+    if(status===401) return 'Ihre Sitzung ist abgelaufen. Bitte melden Sie sich erneut an.';
+    if(status===403){
+      const d=(data&&typeof data==='object')?(data.detail||data.message):data;
+      if(typeof d==='string' && /csrf/i.test(d)) return 'Sicherheitsprüfung fehlgeschlagen (CSRF). Bitte laden Sie die Seite neu und versuchen Sie es erneut.';
+      if(typeof d==='string' && d.trim()) return d.trim();
+      return 'Diese Aktion ist nicht erlaubt oder aktuell gesperrt (z. B. fehlende Berechtigung oder Fulfillment-Schutz).';
+    }
+    if(status===404) return 'Die angeforderten Daten wurden nicht gefunden. Möglicherweise wurden sie gelöscht oder der Bereich ist nicht verfügbar.';
+    if(status===409) return 'Die Aktion konnte nicht ausgeführt werden, weil sich der Zustand inzwischen geändert hat. Bitte aktualisieren Sie die Ansicht.';
+    if(status===422 || status===400){
+      return apiErrorDetail(data)||'Bitte prüfen Sie Ihre Eingaben und versuchen Sie es erneut.';
+    }
+    if(status>=500){
+      return apiErrorDetail(data)||'Der Server konnte die Anfrage gerade nicht verarbeiten. Bitte versuchen Sie es in einem Moment erneut.';
+    }
+    const detail=apiErrorDetail(data);
+    if(detail) return detail;
+    return 'Die Aktion konnte nicht abgeschlossen werden. Bitte prüfen Sie Ihre Angaben und versuchen Sie es erneut.';
+  }
+
+  async function apiFetch(url,opts={}){
+    opts=Object.assign({},opts);
+    const method=(opts.method||'GET').toUpperCase();
+    const headers=Object.assign({'Accept':'application/json'},opts.headers||{});
+    const hasBody=opts.body!=null;
+    if(hasBody&&!(opts.body instanceof FormData)&&!Object.keys(headers).some(key=>key.toLowerCase()==='content-type')) headers['Content-Type']='application/json';
+    if(['POST','PUT','PATCH','DELETE'].includes(method) && !opts._skipCsrf){
+      const csrf=await ensureCsrf(); headers['X-CSRF-Token']=csrf;
+    }
+    opts.headers=headers;
+    let response, text='';
+    try{
+      response=await fetch(url,opts);
+      text=await response.text();
+    }catch(e){
+      throw new Error('Keine Verbindung zum Server möglich. Bitte prüfen Sie Ihre Netzwerkverbindung und versuchen Sie es erneut.');
+    }
+    const contentType=response.headers.get('content-type')||'';
+    let data=text;
+    if(text&&(contentType.includes('json')||/^[\[{]/.test(text.trim()))){try{data=JSON.parse(text);}catch(_){data=text;}}
+    else if(!text) data=null;
+    if(!response.ok) throw new Error(friendlyApiError(data,response.status,response.statusText,url));
+    return data;
+  }
+
+  // UI helpers (global)
+  function uiBadgeClass(kind){
+    const k=String(kind||'').toLowerCase();
+    if(['active','aktiv','paid','verified','captured','completed','ok','success','healthy','connected','configured','synced','synchronisiert','dispatched','freigegeben','release_allowed','enabled'].includes(k)) return 'badge badge-green';
+    if(['pending','ausstehend','waiting','queued','running','processing','open','partial','not_configured','unconfigured','draft','paused','review','syncing','läuft','gesperrt','locked','unpaid'].includes(k)) return 'badge badge-amber';
+    if(['blocked','blockiert','failed','error','down','cancelled','rejected','denied','inactive','disabled'].includes(k)) return 'badge badge-red';
+    return 'badge badge-slate';
+  }
+  function uiStatusLabel(v){
+    const k=String(v||'').toLowerCase();
+    const map={active:'Aktiv', enabled:'Aktiv', disabled:'Deaktiviert', inactive:'Inaktiv', paid:'Bezahlt', verified:'Bezahlt / verifiziert', captured:'Bezahlt', completed:'Abgeschlossen', pending:'Ausstehend', open:'Offen', draft:'Entwurf', paused:'Pausiert', archived:'Archiviert', failed:'Fehler', error:'Fehler', blocked:'Blockiert', locked:'Gesperrt', dispatched:'Versendet', received:'Eingegangen', reserved:'Reserviert', dispatching:'In Versand', cancelled:'Storniert', connected:'Verbunden', configured:'Konfiguriert', not_configured:'Nicht konfiguriert', queued:'Wartend', running:'Läuft', success:'Erfolgreich', healthy:'Stabil'};
+    return map[k] || (v==null||v==='' ? '—' : String(v));
+  }
+  function uiPaymentLabel(status){ return uiStatusLabel(status||'unknown'); }
+  function uiFulfillmentBlocked(order){
+    if(!order) return false;
+    const payOk=['paid','verified','captured','completed'].includes(String(order.payment_status||'').toLowerCase());
+    const locked = order.fulfillment_locked===true || String(order.fulfillment_locked).toLowerCase()==='true' || String(order.fulfillment_locked)==='1';
+    return !payOk || locked;
+  }
+</script>

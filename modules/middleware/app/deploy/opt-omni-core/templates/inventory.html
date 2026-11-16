@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Inventar | Omni-Core Admin{% endblock %}
+{% block content %}
+<div x-data="invPage()" x-init="load()" class="space-y-4 max-w-7xl mx-auto">
+  <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
+    <div><h1 class="text-2xl md:text-3xl font-bold">Inventar & Bestände</h1><p class="text-slate-400">Lagerbestand, Verfügbarkeit und Sicherheitsbestand auf Basis realer Produktdaten.</p></div>
+    <button @click="load()" class="btn btn-secondary">Aktualisieren</button>
+  </div>
+
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+    <div class="card p-4"><div class="text-xs text-slate-400 uppercase">Produkte</div><div class="text-2xl font-bold mt-1" x-text="items.length"></div></div>
+    <div class="card p-4"><div class="text-xs text-slate-400 uppercase">Auf Lager</div><div class="text-2xl font-bold mt-1 text-emerald-300" x-text="items.filter(p=>Number(p.stock||0)>0).length"></div></div>
+    <div class="card p-4"><div class="text-xs text-slate-400 uppercase">Niedrig (≤5)</div><div class="text-2xl font-bold mt-1 text-amber-300" x-text="items.filter(p=>Number(p.stock||0)>0 && Number(p.stock||0)<=5).length"></div></div>
+    <div class="card p-4"><div class="text-xs text-slate-400 uppercase">Ausverkauft</div><div class="text-2xl font-bold mt-1 text-red-300" x-text="items.filter(p=>Number(p.stock||0)<=0).length"></div></div>
+  </div>
+
+  <div class="card p-4 grid md:grid-cols-3 gap-3">
+    <div class="md:col-span-2"><label class="label">Suche</label><input x-model="q" class="input" placeholder="SKU, Titel, Kategorie"></div>
+    <div><label class="label">Bestand</label><select x-model="filter" class="select"><option value="">Alle</option><option value="in">Auf Lager</option><option value="low">Niedrig (≤5)</option><option value="out">Ausverkauft</option></select></div>
+  </div>
+
+  <template x-if="error"><div class="card p-4 border-red-800 text-red-200 bg-red-950/30" x-text="error"></div></template>
+  <div class="card">
+    <div class="table-wrap">
+      <table class="tbl">
+        <thead><tr><th>SKU</th><th>Titel</th><th>Kategorie</th><th>Bestand</th><th>Status</th><th>Empfehlung</th></tr></thead>
+        <tbody>
+          <template x-for="p in filtered()" :key="p.sku">
+            <tr class="hover:bg-slate-800/40">
+              <td class="font-mono text-xs" x-text="p.sku"></td>
+              <td x-text="p.ai_title||p.title||'—'"></td>
+              <td x-text="p.category||'—'"></td>
+              <td :class="Number(p.stock||0)<=0?'text-red-300':(Number(p.stock||0)<=5?'text-amber-300':'text-emerald-300')" x-text="p.stock??0"></td>
+              <td x-text="p.status||'—'"></td>
+              <td class="text-xs" x-text="recommend(p)"></td>
+            </tr>
+          </template>
+          <tr x-show="!loading && filtered().length===0"><td colspan="6" class="p-6 text-center text-slate-400">Keine passenden Artikel.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div x-show="loading" class="p-6 text-slate-400">Lade Inventar…</div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function invPage(){return{items:[],q:'',filter:'',loading:false,error:'',async load(){this.loading=true;this.error='';try{const d=await apiFetch('/api/products?limit=500');this.items=Array.isArray(d)?d:(d.items||[]);}catch(e){this.error=e.message;this.items=[];}this.loading=false;},filtered(){const q=(this.q||'').toLowerCase();return this.items.filter(p=>{const s=Number(p.stock||0); if(this.filter==='in'&&s<=0) return false; if(this.filter==='low'&&!(s>0&&s<=5)) return false; if(this.filter==='out'&&s>0) return false; if(!q) return true; return [p.sku,p.title,p.ai_title,p.category].some(v=>String(v||'').toLowerCase().includes(q));});},recommend(p){const s=Number(p.stock||0); if(s<=0) return 'Nachbestellen / deaktivieren'; if(s<=5) return 'Bestand prüfen (niedrig)'; return 'OK';}}}
+</script>
+{% endblock %}

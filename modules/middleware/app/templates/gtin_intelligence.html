@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}GTIN / Product Intelligence | Omni-Core{% endblock %}
+{% block content %}
+<div x-data="gtinPage()" x-init="init()" class="space-y-5 max-w-7xl mx-auto">
+  <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
+    <div>
+      <h1 class="text-2xl md:text-3xl font-bold">GTIN / Product Intelligence</h1>
+      <p class="text-slate-400">GTIN/EAN-Validierung, Provider-gestützte Anreicherung (konfigurierbar), Herkunft/Confidence, Konflikte & Datenqualität. Keine erfundenen EANs/Attribute.</p>
+    </div>
+    <button @click="loadAll()" class="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded text-sm">Aktualisieren</button>
+  </div>
+
+  <div class="grid md:grid-cols-4 gap-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-lg p-4"><div class="text-xs text-slate-400 uppercase">Provider aktiv</div><div class="mt-1 text-2xl font-bold" x-text="providers.filter(p=>p.enabled).length"></div><div class="text-xs text-slate-500">von <span x-text="providers.length"></span> konfiguriert</div></div>
+    <div class="bg-slate-900 border border-slate-800 rounded-lg p-4"><div class="text-xs text-slate-400 uppercase">Lookups</div><div class="mt-1 text-2xl font-bold" x-text="lookups.length"></div></div>
+    <div class="bg-slate-900 border border-slate-800 rounded-lg p-4"><div class="text-xs text-slate-400 uppercase">Konflikte (offen)</div><div class="mt-1 text-2xl font-bold" :class="conflicts.filter(c=>c.status==='open').length?'text-amber-400':'text-emerald-400'" x-text="conflicts.filter(c=>c.status==='open').length"></div></div>
+    <div class="bg-slate-900 border border-slate-800 rounded-lg p-4"><div class="text-xs text-slate-400 uppercase">Qualitätsstufen</div><div class="mt-1 text-sm">A verifiziert · B konsistent · C ungeprüft/KI</div></div>
+  </div>
+
+  <div class="grid lg:grid-cols-2 gap-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-lg p-4 space-y-3">
+      <h2 class="font-semibold">GTIN/EAN Abfrage & Validierung</h2>
+      <div class="flex gap-2"><input x-model="gtinInput" placeholder="GTIN/EAN (8/12/13/14)" class="flex-1 bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm"><button @click="lookup()" class="bg-indigo-600 hover:bg-indigo-500 px-4 py-2 rounded text-sm">Prüfen/Lookup</button></div>
+      <div class="text-xs text-slate-400">Lokale Prüfziffernvalidierung immer; externe Provider nur wenn verifiziert konfiguriert & aktiviert (keine fiktiven Calls).</div>
+      <pre class="text-xs bg-slate-950 border border-slate-800 rounded p-3 overflow-auto max-h-96" x-text="lookupResult ? JSON.stringify(lookupResult,null,2) : 'Noch keine Abfrage.'"></pre>
+    </div>
+    <div class="bg-slate-900 border border-slate-800 rounded-lg p-4 space-y-3">
+      <h2 class="font-semibold">Provider-Konfiguration (abstrakt/sicher)</h2>
+      <p class="text-sm text-slate-400">OpenEAN/GS1/weitere nur mit verifizierter Doku, Zugang, Lizenz & Terms aktivieren. Secrets/Keys über Settings/Secret-Refs, nicht im Klartext hier.</p>
+      <div class="grid grid-cols-2 gap-2 text-sm">
+        <input x-model="provForm.name" placeholder="Name (z.B. openean, gs1_verified)" class="bg-slate-800 border border-slate-700 rounded px-2 py-2">
+        <input x-model.number="provForm.priority" type="number" placeholder="Priorität" class="bg-slate-800 border border-slate-700 rounded px-2 py-2">
+        <input x-model="provForm.endpoint" placeholder="Endpoint (verifiziert)" class="col-span-2 bg-slate-800 border border-slate-700 rounded px-2 py-2">
+        <input x-model="provForm.license_info" placeholder="Lizenz/Terms Hinweis" class="col-span-2 bg-slate-800 border border-slate-700 rounded px-2 py-2">
+        <label class="flex items-center gap-2 col-span-2 text-sm"><input type="checkbox" x-model="provForm.enabled"> Aktiviert (nur wenn berechtigt konfiguriert)</label>
+      </div>
+      <button @click="saveProvider()" class="bg-indigo-600 hover:bg-indigo-500 px-4 py-2 rounded text-sm">Provider speichern</button>
+      <div class="overflow-auto max-h-48 border border-slate-800 rounded"><table class="w-full text-xs"><thead class="text-slate-400"><tr><th class="p-2 text-left">Name</th><th class="p-2 text-left">Priorität</th><th class="p-2 text-left">Aktiv</th><th class="p-2 text-left">Lizenz</th></tr></thead><tbody>
+        <template x-for="p in providers" :key="p.id||p.name"><tr class="border-t border-slate-800"><td class="p-2" x-text="p.name"></td><td class="p-2" x-text="p.priority"></td><td class="p-2" :class="p.enabled?'text-emerald-400':'text-slate-500'" x-text="p.enabled?'ja':'nein'"></td><td class="p-2" x-text="p.license_info||'—'"></td></tr></template>
+        <tr x-show="providers.length===0"><td colspan="4" class="p-2 text-slate-400">Keine Provider konfiguriert. Lokale Validierung aktiv; externe Abfragen im Status „nicht konfiguriert“.</td></tr>
+      </tbody></table></div>
+    </div>
+  </div>
+
+  <div class="grid lg:grid-cols-2 gap-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-lg p-4"><h2 class="font-semibold mb-2">Lookup-Historie & Provenienz</h2><pre class="text-xs bg-slate-950 border border-slate-800 rounded p-3 overflow-auto max-h-80" x-text="JSON.stringify(lookups.slice(0,20),null,2)"></pre></div>
+    <div class="bg-slate-900 border border-slate-800 rounded-lg p-4"><h2 class="font-semibold mb-2">Konflikte / Review</h2><pre class="text-xs bg-slate-950 border border-slate-800 rounded p-3 overflow-auto max-h-80" x-text="JSON.stringify(conflicts.slice(0,20),null,2)"></pre><p class="text-xs text-amber-400 mt-2">Kritische Konflikte blocken Veröffentlichung/Export bis zur Klärung. Keine automatische Datenübernahme ohne Regel/Confidence.</p></div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function gtinPage(){
+  return {gtinInput:'',lookupResult:null,providers:[],lookups:[],conflicts:[],provForm:{name:'openean',endpoint:'',priority:100,license_info:'',enabled:false,config_json:{}},
+  async init(){await this.loadAll();},
+  async loadAll(){await Promise.all([this.loadProviders(),this.loadLookups(),this.loadConflicts()]);},
+  async loadProviders(){try{this.providers=await apiFetch('/api/gtin/providers');}catch(e){this.providers=[];}},
+  async loadLookups(){try{this.lookups=await apiFetch('/api/gtin/lookups?limit=50');}catch(e){this.lookups=[];}},
+  async loadConflicts(){try{this.conflicts=await apiFetch('/api/gtin/conflicts?limit=50');}catch(e){this.conflicts=[];}},
+  async lookup(){if(!this.gtinInput)return; try{this.lookupResult=await apiFetch('/api/gtin/lookup',{method:'POST',body:JSON.stringify({gtin:this.gtinInput})}); await this.loadLookups();}catch(e){this.lookupResult={error:e.message};}},
+  async saveProvider(){try{await apiFetch('/api/gtin/providers',{method:'POST',body:JSON.stringify(this.provForm)}); await this.loadProviders();}catch(e){alert('Fehler: '+e.message);}}
+  }
+}
+</script>
+{% endblock %}

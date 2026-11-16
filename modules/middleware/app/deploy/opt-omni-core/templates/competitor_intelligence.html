@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Competitor Intelligence | Omni-Core{% endblock %}
+{% block content %}
+<div x-data="pageState()" x-init="loadAll()" class="space-y-4 max-w-7xl mx-auto">
+  <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
+    <div>
+      <h1 class="text-2xl md:text-3xl font-bold">Competitor Intelligence</h1>
+      <p class="text-slate-400">Wettbewerber, Matching und Preisempfehlungen.</p>
+    </div>
+    <button @click="loadAll()" class="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded text-sm">Aktualisieren</button>
+  </div>
+
+  <template x-if="globalError"><div class="rounded border border-red-700 bg-red-900/30 p-3 text-sm text-red-200" x-text="globalError"></div></template>
+
+    <div class="bg-slate-900 border border-slate-800 rounded-lg p-4 mb-4 grid md:grid-cols-2 gap-3">
+      <div><h2 class="font-semibold mb-2">Suche</h2><input x-model="query" placeholder="Suchbegriff" class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm"><button @click="search()" class="mt-2 bg-indigo-600 hover:bg-indigo-500 px-4 py-2 rounded text-sm">Suchen</button></div>
+      <div><h2 class="font-semibold mb-2">Ergebnis</h2><pre class="text-xs bg-slate-950 border border-slate-800 rounded p-3 overflow-auto max-h-48" x-text="actionResult?JSON.stringify(actionResult,null,2):'—'"></pre></div>
+    </div>
+  <div class="grid lg:grid-cols-2 gap-4">
+    <template x-for="ep in endpoints" :key="ep.url">
+      <div class="bg-slate-900 border border-slate-800 rounded-lg p-4">
+        <div class="flex items-center justify-between mb-2">
+          <h2 class="font-semibold" x-text="ep.label"></h2>
+          <span class="text-xs" :class="ep.state==='ok'?'text-emerald-400':(ep.state==='error'?'text-red-400':(ep.state==='empty'?'text-amber-400':'text-slate-400'))" x-text="ep.state"></span>
+        </div>
+        <div class="text-xs text-slate-500 mb-2" x-text="ep.url"></div>
+        <template x-if="ep.state==='loading'"><div class="text-sm text-slate-400">Lade…</div></template>
+        <template x-if="ep.state==='error'"><div class="text-sm text-red-300" x-text="ep.error"></div></template>
+        <template x-if="ep.state==='empty'"><div class="text-sm text-amber-300">Keine Daten / nicht konfiguriert oder leer.</div></template>
+        <template x-if="ep.state==='ok'"><pre class="text-xs bg-slate-950 border border-slate-800 rounded p-3 overflow-auto max-h-96" x-text="formatData(ep.data)"></pre></template>
+      </div>
+    </template>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function pageState(){
+  return {
+    endpoints: [{url:'/api/competitor/providers',label:'Provider'},{url:'/api/stats/competitor',label:'Stats'}],
+    globalError: '',
+    supplier: 10, calcResult: null,
+    query: '', actionResult: null, busy: false,
+    q:'', status:'',
+    setKey:'', setVal:'', actionMsg:'', actionErr:false,
+    async loadAll(){ this.globalError=''; await Promise.all(this.endpoints.map(e=>this.loadEp(e))); },
+    async loadEp(ep){
+      ep.state='loading'; ep.error=''; ep.data=null;
+      try {
+        const d = await apiFetch(ep.url);
+        ep.data = d;
+        const empty = d==null || (Array.isArray(d) && d.length===0) || (typeof d==='object' && !Array.isArray(d) && Object.keys(d).length===0);
+        ep.state = empty ? 'empty' : 'ok';
+      } catch(e){ ep.state='error'; ep.error=e.message; }
+    },
+    formatData(d){ try{ return JSON.stringify(d, null, 2); }catch(_ ){ return String(d); } },
+    filteredProducts(){ const all = (this.endpoints.find(e=>e.url.startsWith('/api/products'))||{}).data||[]; const q=(this.q||'').toLowerCase(); return (Array.isArray(all)?all:[]).filter(p=>{ if(this.status && String(p.status)!==this.status) return false; if(!q) return true; return [p.sku,p.title,p.ai_title,p.category].some(v=>String(v||'').toLowerCase().includes(q)); }); },
+    orders(){ const all=(this.endpoints.find(e=>e.url.startsWith('/api/orders'))||{}).data||[]; return Array.isArray(all)?all:(all.items||[]); },
+    async calc(){ try{ this.calcResult=await apiFetch('/api/pricing/calculate',{method:'POST',body:JSON.stringify({supplier_price:Number(this.supplier||0)})}); }catch(e){ this.calcResult={error:e.message}; } },
+    async search(){ try{ this.actionResult=await apiFetch('/api/competitor/search',{method:'POST',body:JSON.stringify({query:this.query,limit:10})}); }catch(e){ this.actionResult={error:e.message}; } },
+    async runTrend(){ this.busy=true; try{ this.actionResult=await apiFetch('/api/ai/trend-analysis',{method:'POST'}); }catch(e){ this.actionResult={error:e.message}; } this.busy=false; },
+    async saveSetting(){ this.actionMsg=''; this.actionErr=false; try{ await apiFetch('/api/settings',{method:'POST',body:JSON.stringify({key:this.setKey,value:this.setVal})}); this.actionMsg='Gespeichert.'; await this.loadAll(); }catch(e){ this.actionErr=true; this.actionMsg='Fehler: '+e.message; } }
+  }
+}
+</script>
+{% endblock %}

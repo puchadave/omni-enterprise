@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}Szenen-News & Events | OMNI-CORE{% endblock %}
+{% block content %}
+<div x-data="scenePage()" x-init="init()" class="space-y-4 max-w-7xl mx-auto">
+  <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
+    <div>
+      <h1 class="text-2xl md:text-3xl font-bold">Szenen-News & Events</h1>
+      <p class="text-slate-400">Überblick über gespeicherte, reale Signale (News, Events, Releases, Trends). Auswertungen basieren ausschließlich auf vorhandenen Daten – es werden keine Quellen oder Inhalte erfunden.</p>
+    </div>
+    <button @click="loadAll()" class="btn btn-primary">Aktualisieren</button>
+  </div>
+
+  <template x-if="msg"><div class="banner" :class="err?'banner-error':'banner-success'" x-text="msg"></div></template>
+
+  <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+    <div class="card p-4"><div class="text-xs text-slate-400 uppercase">Szenen-Puls</div><div class="text-2xl font-bold mt-1" x-text="(intel.pulse||{}).score ?? '—'"></div><div class="text-xs text-slate-500">Index (0–100) aus gespeicherten Daten</div></div>
+    <div class="card p-4"><div class="text-xs text-slate-400 uppercase">Quellen</div><div class="text-2xl font-bold mt-1" x-text="(intel.sources||{}).total ?? 0"></div><div class="text-xs text-slate-500" x-text="((intel.sources||{}).enabled??0)+' aktiv'"></div></div>
+    <div class="card p-4"><div class="text-xs text-slate-400 uppercase">Signale / Einträge</div><div class="text-2xl font-bold mt-1" x-text="(intel.items||{}).total ?? 0"></div></div>
+    <div class="card p-4"><div class="text-xs text-slate-400 uppercase">Wissenseinträge</div><div class="text-2xl font-bold mt-1" x-text="(intel.knowledge||{}).total ?? 0"></div></div>
+    <div class="card p-4"><div class="text-xs text-slate-400 uppercase">Datenbasis</div><div class="mt-2"><span class="badge badge-slate" x-text="intel.data_basis==='stored_records_only'?'Nur gespeicherte Daten':(intel.data_basis||'—')"></span></div></div>
+  </div>
+
+  <template x-if="(intel.notes||[]).length"><div class="banner banner-warn"><template x-for="n in intel.notes" :key="n"><div x-text="n"></div></template></div></template>
+
+  <div class="grid lg:grid-cols-3 gap-4">
+    <div class="card p-4 space-y-4">
+      <div><h2 class="font-semibold mb-2">Radar (Signaltypen)</h2>
+        <div class="space-y-1 text-sm" x-show="(intel.radar||[]).length"><template x-for="r in intel.radar||[]" :key="r.kind"><div class="flex justify-between border-b border-slate-800 pb-1"><span x-text="kindLabel(r.kind)"></span><span class="font-medium" x-text="r.count"></span></div></template></div>
+        <div x-show="!(intel.radar||[]).length" class="text-sm text-slate-400">Noch keine Signale erfasst.</div>
+      </div>
+      <div><h2 class="font-semibold mb-2">Trends (Kategorien)</h2>
+        <div class="space-y-1 text-sm" x-show="(intel.trends||[]).length"><template x-for="t in intel.trends||[]" :key="t.category"><div class="flex justify-between border-b border-slate-800 pb-1"><span x-text="catLabel(t.category)"></span><span class="font-medium" x-text="t.count"></span></div></template></div>
+        <div x-show="!(intel.trends||[]).length" class="text-sm text-slate-400">Keine Trenddaten vorhanden.</div>
+      </div>
+    </div>
+
+    <div class="card p-4 lg:col-span-2">
+      <h2 class="font-semibold mb-2">Aktuelle Signale (aus gespeicherten Einträgen)</h2>
+      <div class="overflow-auto max-h-96 border border-slate-800 rounded" x-show="(intel.top_signals||[]).length">
+        <table class="tbl"><thead><tr><th>Typ</th><th>Titel & Info</th><th>Kategorie</th><th>Relevanz</th></tr></thead><tbody>
+          <template x-for="i in intel.top_signals||[]" :key="i.id"><tr>
+            <td><span class="badge badge-slate" x-text="kindLabel(i._kind||'news')"></span></td>
+            <td><div class="font-medium" x-text="i.title||'Ohne Titel'"></div><div class="text-xs text-slate-500 line-clamp-2 max-w-md" x-text="i.summary||i.url||''"></div></td>
+            <td class="text-sm" x-text="catLabel(i.category||'general')"></td>
+            <td class="text-sm" x-text="i._relevance ?? '—'"></td>
+          </tr></template>
+        </tbody></table>
+      </div>
+      <template x-if="!(intel.top_signals||[]).length"><div class="empty-state !py-8"><div class="icon">🛰️</div><div class="title">Noch keine Signale vorhanden</div><div class="text-sm">Erfassen Sie reale Quellen und Einträge, um hier Auswertungen zu sehen. Ohne gespeicherte Daten werden keine Trends angezeigt.</div></div></template>
+      <p class="help-text mt-2" x-text="(intel.pulse||{}).explanation||''"></p>
+    </div>
+  </div>
+
+  <div class="grid lg:grid-cols-2 gap-4">
+    <div class="card p-4 space-y-3">
+      <h2 class="font-semibold">Quelle hinzufügen oder aktualisieren</h2>
+      <p class="text-xs text-slate-400">Quellen dienen der Einordnung Ihrer Einträge (z. B. Blogs, Kalender, offizielle Seiten). Nur reale, bekannte Quellen angeben.</p>
+      <div class="grid md:grid-cols-2 gap-3">
+        <div><label class="label">Name der Quelle *</label><input x-model="src.name" class="input" placeholder="z. B. Festival-Kalender XY"></div>
+        <div><label class="label">Kategorie</label><select x-model="src.category" class="select"><option value="general">Allgemein</option><option value="festival">Festival</option><option value="event">Event</option><option value="release">Release</option><option value="artist">Artist</option><option value="label">Label</option><option value="trend">Trend</option></select></div>
+        <div class="md:col-span-2"><label class="label">Webadresse / Feed (optional)</label><input x-model="src.url" class="input" placeholder="https://…"><p class="help-text">Nur echte, erreichbare Adressen eintragen.</p></div>
+      </div>
+      <label class="flex items-center gap-2 text-sm"><input type="checkbox" x-model="src.enabled"> Quelle aktiv verwenden</label>
+      <button @click="saveSource()" class="btn btn-primary" :disabled="busy">Quelle speichern</button>
+      <div class="overflow-auto max-h-40 border border-slate-800 rounded" x-show="sources.length"><table class="tbl text-xs"><thead><tr><th>Name</th><th>Kategorie</th><th>Status</th></tr></thead><tbody><template x-for="s in sources" :key="s.id"><tr><td x-text="s.name"></td><td x-text="catLabel(s.category)"></td><td><span class="badge" :class="uiBadgeClass(s.enabled?'active':'inactive')" x-text="s.enabled?'Aktiv':'Inaktiv'"></span></td></tr></template></tbody></table></div>
+    </div>
+
+    <div class="card p-4 space-y-3">
+      <h2 class="font-semibold">Signal / News / Event erfassen</h2>
+      <p class="text-xs text-slate-400">Erfassen Sie nur verifizierte, reale Informationen. Diese Einträge fließen in Radar und Trends ein.</p>
+      <div class="grid md:grid-cols-2 gap-3">
+        <div class="md:col-span-2"><label class="label">Titel *</label><input x-model="item.title" class="input" placeholder="Aussagekräftiger Titel"></div>
+        <div><label class="label">Kategorie</label><select x-model="item.category" class="select"><option value="general">Allgemein</option><option value="festival">Festival</option><option value="event">Event</option><option value="release">Release</option><option value="artist">Artist</option><option value="label">Label</option><option value="trend">Trend</option></select></div>
+        <div><label class="label">Quellen-ID (optional)</label><input x-model="item.source_id" class="input font-mono text-xs" placeholder="ID einer gespeicherten Quelle"></div>
+        <div class="md:col-span-2"><label class="label">Link (optional)</label><input x-model="item.url" class="input" placeholder="https://…"></div>
+        <div class="md:col-span-2"><label class="label">Kurzbeschreibung</label><textarea x-model="item.summary" class="textarea" rows="3" placeholder="Worum geht es? (nur belegte Fakten)"></textarea></div>
+      </div>
+      <button @click="saveItem()" class="btn btn-primary" :disabled="busy">Eintrag speichern</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function scenePage(){return{
+  intel:{}, sources:[], busy:false, msg:'', err:false,
+  src:{name:'',url:'',category:'general',enabled:true},
+  item:{title:'',url:'',summary:'',category:'general',source_id:''},
+  kindLabel(k){return ({news:'News',event:'Event',release:'Release',artist:'Artist',label:'Label'})[k]||k||'—';},
+  catLabel(c){return ({general:'Allgemein',festival:'Festival',event:'Event',release:'Release',artist:'Artist',label:'Label',trend:'Trend'})[c]||c||'—';},
+  notify(m,e=false){this.msg=m; this.err=e; if(e) toast(m,'error'); else toast(m,'success'); setTimeout(()=>{if(this.msg===m)this.msg='';},5000);},
+  async init(){await this.loadAll();},
+  async loadAll(){await Promise.all([this.loadIntel(),this.loadSources()]);},
+  async loadIntel(){try{this.intel=await apiFetch('/api/scene-intelligence/overview');}catch(e){this.intel={notes:['Daten konnten nicht geladen werden: '+e.message]};}},
+  async loadSources(){try{const r=await apiFetch('/api/news/sources'); this.sources=r.items||[];}catch(e){this.sources=[];}},
+  async saveSource(){if(!this.src.name){this.notify('Bitte geben Sie einen Namen für die Quelle an.',true); return;} this.busy=true; try{await apiFetch('/api/news/sources',{method:'POST',body:JSON.stringify(this.src)}); this.src={name:'',url:'',category:'general',enabled:true}; this.notify('Quelle wurde gespeichert.'); await this.loadAll();}catch(e){this.notify('Quelle konnte nicht gespeichert werden: '+e.message,true);} this.busy=false;},
+  async saveItem(){if(!this.item.title){this.notify('Bitte geben Sie einen Titel für den Eintrag an.',true); return;} this.busy=true; try{await apiFetch('/api/news/items',{method:'POST',body:JSON.stringify(this.item)}); this.item={title:'',url:'',summary:'',category:'general',source_id:''}; this.notify('Eintrag wurde gespeichert.'); await this.loadAll();}catch(e){this.notify('Eintrag konnte nicht gespeichert werden: '+e.message,true);} this.busy=false;},
+}}
+</script>
+{% endblock %}

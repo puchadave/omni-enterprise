@@ -1,0 +1,168 @@
+name: omnicore-middleware
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: ${COMPOSE_PROJECT_NAME:-omnicore}-db
+    restart: unless-stopped
+    shm_size: 256mb
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-omnicore}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
+      POSTGRES_DB: ${POSTGRES_DB:-omnicore}
+      PGDATA: ${PGDATA:-/var/lib/postgresql/data/pgdata}
+      TZ: ${TZ:-Europe/Berlin}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    networks:
+      - omni-net
+    logging: *default-logging
+
+  omni-core:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        PYTHON_VERSION: ${PYTHON_VERSION:-3.11}
+    image: ${OMNICORE_IMAGE:-ghcr.io/local/omnicore-middleware}:${OMNICORE_TAG:-1.0.0}
+    container_name: ${COMPOSE_PROJECT_NAME:-omnicore}-app
+    restart: unless-stopped
+    init: true
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ID: ${NODE_ID:-node-a}
+      TZ: ${TZ:-Europe/Berlin}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-omnicore}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-omnicore}
+      DATABASE_PATH: /app/data/middleware.db
+      SESSION_SECRET: ${SESSION_SECRET:-}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      ADMIN_DISPLAY_NAME: ${ADMIN_DISPLAY_NAME:-Administrator}
+      SECRET_KEY: ${SECRET_KEY:-}
+      JWT_SECRET: ${JWT_SECRET:-}
+      # OmniRoute standalone server integration (full)
+      OMNIROUTE_URL: ${OMNIROUTE_URL:-https://puchalla.online/v1}
+      OMNIROUTE_BASE_URL: ${OMNIROUTE_BASE_URL:-${OMNIROUTE_URL:-https://puchalla.online/v1}}
+      OMNI_ROUTE_URL: ${OMNI_ROUTE_URL:-${OMNIROUTE_URL:-https://puchalla.online/v1}}
+      OMNIROUTE_API_KEY: ${OMNIROUTE_API_KEY:-}
+      OMNIROUTE_TIMEOUT: ${OMNIROUTE_TIMEOUT:-60}
+      OMNIROUTE_RETRY: ${OMNIROUTE_RETRY:-3}
+      MATTERHORN_API_TOKEN: ${MATTERHORN_API_TOKEN:-}
+      # Models & features (preconfigured defaults)
+      OMNI_MODEL_ADMIN: ${OMNI_MODEL_ADMIN:-omni-admin-agent}
+      OMNI_MODEL_CONTENT_SEO: ${OMNI_MODEL_CONTENT_SEO:-omni-content-seo}
+      OMNI_MODEL_VISION: ${OMNI_MODEL_VISION:-omni-vision-photo}
+      OMNI_MODEL_VIDEO: ${OMNI_MODEL_VIDEO:-omni-video-gen}
+      OMNI_MODEL_CRM: ${OMNI_MODEL_CRM:-omni-crm-support}
+      OMNI_MODEL_CRM_GDPR: ${OMNI_MODEL_CRM_GDPR:-omni-local-gdpr}
+      OMNI_CORE_ENABLED: ${OMNI_CORE_ENABLED:-true}
+      OMNI_CORE_SYNC_MODE: ${OMNI_CORE_SYNC_MODE:-api_webhook_only}
+      OMNI_CORE_SYNC_IDEMPOTENCY: ${OMNI_CORE_SYNC_IDEMPOTENCY:-true}
+      OMNI_CORE_CONFLICT_STRATEGY: ${OMNI_CORE_CONFLICT_STRATEGY:-report_only_no_silent_overwrite}
+      ENABLE_MARKETING_ENGINE: ${ENABLE_MARKETING_ENGINE:-true}
+      ENABLE_SALES_AUTOMATION: ${ENABLE_SALES_AUTOMATION:-true}
+      ENABLE_CHANNEL_ADAPTERS: ${ENABLE_CHANNEL_ADAPTERS:-true}
+      ENABLE_MATTERHORN_IMPORT: ${ENABLE_MATTERHORN_IMPORT:-true}
+      # Runtime optimization
+      UVICORN_WORKERS: ${UVICORN_WORKERS:-1}
+      UVICORN_LOOP: ${UVICORN_LOOP:-uvloop}
+      UVICORN_HTTP: ${UVICORN_HTTP:-httptools}
+      PYTHONUNBUFFERED: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+    ports:
+      - "${SERVICE_BIND_HOST:-0.0.0.0}:${OMNI_CORE_PORT:-8002}:8000"
+    volumes:
+      - app_data:/app/data
+      - ${MEDIA_PATH:-./data/media}:/app/media
+      - ${UPLOADS_PATH:-./data/uploads}:/app/uploads
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8000/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    networks:
+      - omni-net
+    logging: *default-logging
+
+  # Autonomous coding agent (OmniRoute-connected), not started by default
+  coding-agent:
+    profiles: ["dev"]
+    build:
+      context: ./dev-agent
+      dockerfile: Dockerfile
+    image: ${CODING_AGENT_IMAGE:-omnicore-coding-agent:standalone}
+    container_name: ${COMPOSE_PROJECT_NAME:-omnicore}-coding-agent
+    working_dir: /workspace
+    environment:
+      TZ: ${TZ:-Europe/Berlin}
+      AGENT_WORKSPACE: /workspace
+      AGENT_BASE_URL: ${AGENT_BASE_URL:-${OMNIROUTE_URL:-https://puchalla.online/v1}}
+      AGENT_API_KEY: ${AGENT_API_KEY:-${OMNIROUTE_API_KEY:-}}
+      AGENT_MODEL: ${AGENT_MODEL:-${OMNI_MODEL_ADMIN:-omni-admin-agent}}
+      AGENT_MAX_STEPS: ${AGENT_MAX_STEPS:-30}
+      OMNIROUTE_URL: ${OMNIROUTE_URL:-https://puchalla.online/v1}
+      OMNIROUTE_API_KEY: ${OMNIROUTE_API_KEY:-}
+      OPENAI_BASE_URL: ${AGENT_BASE_URL:-${OMNIROUTE_URL:-https://puchalla.online/v1}}
+      OPENAI_API_KEY: ${AGENT_API_KEY:-${OMNIROUTE_API_KEY:-}}
+    volumes:
+      - ./:/workspace
+    networks:
+      - omni-net
+    stdin_open: true
+    tty: true
+    entrypoint: ["python3", "/opt/dev-agent/agent.py"]
+    logging: *default-logging
+
+
+  zerotier:
+    image: ${ZEROTIER_IMAGE:-zerotier/zerotier:latest}
+    container_name: ${COMPOSE_PROJECT_NAME:-omni}-zerotier
+    restart: unless-stopped
+    profiles: ["zt"]
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    volumes:
+      - zerotier_data:/var/lib/zerotier-one
+    environment:
+      ZT_NETWORK_ID: ${ZT_NETWORK_ID:-}
+    command: ["sh","-lc","zerotier-one -d; sleep 3; if [ -n \"${ZT_NETWORK_ID:-}\" ]; then zerotier-cli join ${ZT_NETWORK_ID} || true; fi; tail -f /dev/null"]
+    healthcheck:
+      test: ["CMD-SHELL", "zerotier-cli info >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  zerotier_data:
+    name: ${COMPOSE_PROJECT_NAME:-omni}_zerotier_data
+  pg_data:
+    name: ${COMPOSE_PROJECT_NAME:-omnicore}_pg_data
+  app_data:
+    name: ${COMPOSE_PROJECT_NAME:-omnicore}_app_data
+
+networks:
+  omni-net:
+    name: ${COMPOSE_PROJECT_NAME:-omnicore}_net
+    driver: bridge

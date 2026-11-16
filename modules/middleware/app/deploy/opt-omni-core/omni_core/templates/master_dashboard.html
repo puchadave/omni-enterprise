@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="de" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Omni-Core Middleware | Master Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <style>
+        .live-dot { animation: pulse 2s infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen" x-data="dashboard()" x-init="init()">
+    <div class="container mx-auto px-4 py-8">
+        <!-- Header -->
+        <header class="mb-8">
+            <h1 class="text-3xl font-bold text-white">Omni-Core Middleware</h1>
+            <p class="text-gray-400">Enterprise E-Commerce Control Center</p>
+        </header>
+
+        <!-- Live Status Bar -->
+        <div class="bg-gray-800 rounded-lg p-4 mb-6 border border-gray-700">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-4">
+                    <span class="flex h-3 w-3 relative">
+                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                        <span class="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+                    </span>
+                    <span class="text-sm font-medium">System Live</span>
+                </div>
+                <div class="text-sm text-gray-400" x-text="'Last updated: ' + lastUpdate"></div>
+            </div>
+        </div>
+
+        <!-- Main Metrics Grid -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <!-- OmniRoute Latency -->
+            <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
+                <h3 class="text-sm font-medium text-gray-400 uppercase tracking-wider">OmniRoute Latency</h3>
+                <div class="mt-2 flex items-baseline">
+                    <span class="text-3xl font-bold text-white" x-text="stats.omniroute_latency || 'N/A'"></span>
+                    <span class="ml-2 text-sm text-gray-400">ms</span>
+                </div>
+                <div class="mt-2 text-sm" :class="stats.omniroute_healthy ? 'text-green-400' : 'text-red-400'" x-text="stats.omniroute_healthy ? 'Connected' : 'Disconnected'"></div>
+            </div>
+
+            <!-- Product Count -->
+            <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
+                <h3 class="text-sm font-medium text-gray-400 uppercase tracking-wider">Managed Products</h3>
+                <div class="mt-2 flex items-baseline">
+                    <span class="text-3xl font-bold text-white" x-text="stats.total_products">0</span>
+                </div>
+                <div class="mt-2 text-sm text-gray-400" x-text="stats.active_products + ' active'"></div>
+            </div>
+
+            <!-- Queue Size -->
+            <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
+                <h3 class="text-sm font-medium text-gray-400 uppercase tracking-wider">Job Queue</h3>
+                <div class="mt-2 flex items-baseline">
+                    <span class="text-3xl font-bold text-white" x-text="stats.queue_size">0</span>
+                </div>
+                <div class="mt-2 text-sm text-gray-400">Pending tasks</div>
+            </div>
+
+            <!-- Error Count -->
+            <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
+                <h3 class="text-sm font-medium text-gray-400 uppercase tracking-wider">Sync Errors</h3>
+                <div class="mt-2 flex items-baseline">
+                    <span class="text-3xl font-bold text-white" x-text="stats.error_count">0</span>
+                </div>
+                <div class="mt-2 text-sm" :class="stats.error_count > 0 ? 'text-red-400' : 'text-green-400'">
+                    <span x-text="stats.error_count > 0 ? 'Attention needed' : 'All clear'"></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Marketplace Status -->
+        <div class="bg-gray-800 rounded-lg p-6 border border-gray-700 mb-8">
+            <h2 class="text-lg font-semibold text-white mb-4">Marketplace Connections</h2>
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+                <template x-for="marketplace in ['shopware', 'ebay', 'amazon', 'kaufland', 'etsy']" :key="marketplace">
+                    <div class="flex items-center space-x-2 p-3 bg-gray-700 rounded">
+                        <span class="capitalize text-sm" x-text="marketplace"></span>
+                        <span class="ml-auto" :class="marketplaces[marketplace] ? 'text-green-400' : 'text-red-400'">
+                            <svg x-show="marketplaces[marketplace]" class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path></svg>
+                            <svg x-show="!marketplaces[marketplace]" class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"></path></svg>
+                        </span>
+                    </div>
+                </template>
+            </div>
+        </div>
+
+        <!-- Recent Activity Log -->
+        <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
+            <h2 class="text-lg font-semibold text-white mb-4">Recent Activity</h2>
+            <div class="space-y-2 max-h-64 overflow-y-auto">
+                <template x-for="log in logs" :key="log.id">
+                    <div class="flex items-start space-x-3 p-2 bg-gray-700 rounded text-sm">
+                        <span x-text="log.timestamp" class="text-gray-400 whitespace-nowrap"></span>
+                        <span :class="{'text-red-400': log.level === 'error', 'text-yellow-400': log.level === 'warning', 'text-green-400': log.level === 'info'}" x-text="log.level.toUpperCase()"></span>
+                        <span x-text="log.message" class="flex-1"></span>
+                    </div>
+                </template>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function dashboard() {
+            return {
+                stats: { omniroute_latency: 0, omniroute_healthy: false, total_products: 0, active_products: 0, queue_size: 0, error_count: 0 },
+                logs: [],
+                marketplaces: { shopware: false, ebay: false, amazon: false, kaufland: false, etsy: false },
+                lastUpdate: new Date().toLocaleTimeString(),
+                init() {
+                    this.fetchData();
+                    setInterval(() => this.fetchData(), 5000); // Poll every 5 seconds
+                },
+                async fetchData() {
+                    try {
+                        const health = await fetch('/api/health').then(r => r.json());
+                        this.stats.omniroute_healthy = health.omniroute_healthy;
+                        this.stats.queue_size = health.queue_size;
+
+                        const stats = await fetch('/api/stats').then(r => r.json());
+                        this.stats.total_products = stats.total_products;
+                        this.stats.active_products = stats.total_products; // Simplified
+                        this.stats.error_count = stats.pending_orders; // Simplified
+
+                        this.lastUpdate = new Date().toLocaleTimeString();
+                    } catch (e) {
+                        console.error('Failed to fetch data:', e);
+                    }
+                }
+            }
+        }
+    </script>
+</body>
+</html>

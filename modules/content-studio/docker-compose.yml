@@ -1,0 +1,60 @@
+name: omni-content-studio
+
+x-log: &log
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "5" }
+
+services:
+  content-studio:
+    <<: *log
+    image: ${CONTENT_STUDIO_IMAGE:-alpine:3.20}
+    container_name: ${COMPOSE_PROJECT_NAME:-omni-content-studio}
+    restart: unless-stopped
+    command: ["sh","-lc","echo content-studio ready; while true; do sleep 3600; done"]
+    environment:
+      TZ: ${TZ:-Europe/Berlin}
+      MIDDLEWARE_URL: ${MIDDLEWARE_URL:-}
+      OMNIROUTE_URL: ${OMNIROUTE_URL:-}
+      OMNIROUTE_API_KEY: ${OMNIROUTE_API_KEY:-}
+
+    volumes:
+      - worker_data:/data
+      - ./config:/config:ro
+    networks:
+      - content-studio-net
+
+
+  zerotier:
+    image: ${ZEROTIER_IMAGE:-zerotier/zerotier:latest}
+    container_name: ${COMPOSE_PROJECT_NAME:-omni}-zerotier
+    restart: unless-stopped
+    profiles: ["zt"]
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    volumes:
+      - zerotier_data:/var/lib/zerotier-one
+    environment:
+      ZT_NETWORK_ID: ${ZT_NETWORK_ID:-}
+    command: ["sh","-lc","zerotier-one -d; sleep 3; if [ -n \"${ZT_NETWORK_ID:-}\" ]; then zerotier-cli join ${ZT_NETWORK_ID} || true; fi; tail -f /dev/null"]
+    healthcheck:
+      test: ["CMD-SHELL", "zerotier-cli info >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  zerotier_data:
+    name: ${COMPOSE_PROJECT_NAME:-omni}_zerotier_data
+  worker_data:
+    name: ${COMPOSE_PROJECT_NAME:-omni-content-studio}_data
+
+networks:
+  content-studio-net:
+    name: ${COMPOSE_PROJECT_NAME:-omni-content-studio}_net
+    driver: bridge

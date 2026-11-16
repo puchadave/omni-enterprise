@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="de" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Omni-Core Middleware | Settings</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen" x-data="settings()">
+    <div class="container mx-auto px-4 py-8">
+        <header class="mb-8">
+            <h1 class="text-3xl font-bold text-white">System Configuration</h1>
+            <p class="text-gray-400">Manage API keys, OmniRoute URL, and marketplace credentials</p>
+        </header>
+
+        <div class="max-w-2xl mx-auto space-y-6">
+            <!-- OmniRoute Settings -->
+            <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
+                <h2 class="text-lg font-semibold text-white mb-4">OmniRoute AI Gateway</h2>
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-1">Base URL</label>
+                        <input type="text" x-model="form.omniroute_url" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" placeholder="http://omniroute.local:8000/v1">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-1">API Key</label>
+                        <input type="password" x-model="form.omniroute_api_key" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" placeholder="sk-...">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-1">Model</label>
+                        <input type="text" x-model="form.omniroute_model" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" placeholder="gemini-2.5-flash">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Shopware 6 -->
+            <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
+                <h2 class="text-lg font-semibold text-white mb-4">Shopware 6</h2>
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-1">Shop URL</label>
+                        <input type="text" x-model="form.shopware_url" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" placeholder="https://shop.example.com">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-1">API Key</label>
+                        <input type="password" x-model="form.shopware_api_key" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-1">API Secret</label>
+                        <input type="password" x-model="form.shopware_api_secret" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                    </div>
+                </div>
+            </div>
+
+            <!-- eBay -->
+            <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
+                <h2 class="text-lg font-semibold text-white mb-4">eBay</h2>
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-1">App ID</label>
+                        <input type="text" x-model="form.ebay_app_id" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-1">Dev ID</label>
+                        <input type="text" x-model="form.ebay_dev_id" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-1">Cert ID</label>
+                        <input type="password" x-model="form.ebay_cert_id" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Amazon -->
+            <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
+                <h2 class="text-lg font-semibold text-white mb-4">Amazon SP-API</h2>
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-1">Client ID</label>
+                        <input type="text" x-model="form.amazon_client_id" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-1">Client Secret</label>
+                        <input type="password" x-model="form.amazon_client_secret" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-1">Refresh Token</label>
+                        <input type="text" x-model="form.amazon_refresh_token" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Kaufland -->
+            <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
+                <h2 class="text-lg font-semibold text-white mb-4">Kaufland</h2>
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-1">Client ID</label>
+                        <input type="text" x-model="form.kaufland_client_id" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-1">Client Secret</label>
+                        <input type="password" x-model="form.kaufland_client_secret" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Etsy -->
+            <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
+                <h2 class="text-lg font-semibold text-white mb-4">Etsy</h2>
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-1">API Key</label>
+                        <input type="text" x-model="form.etsy_api_key" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Save Button -->
+            <div class="flex justify-end space-x-4">
+                <button @click="save()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded" :disabled="saving" x-text="saving ? 'Saving...' : 'Save Settings'"></button>
+            </div>
+
+            <!-- Status Message -->
+            <div x-show="message" class="p-4 rounded" :class="messageType === 'success' ? 'bg-green-800 text-green-200' : 'bg-red-800 text-red-200'">
+                <span x-text="message"></span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function settings() {
+            return {
+                form: {},
+                saving: false,
+                message: '',
+                messageType: 'success',
+                async init() {
+                    const res = await fetch('/api/settings').then(r => r.json());
+                    this.form = res;
+                },
+                async save() {
+                    this.saving = true;
+                    try {
+                        const res = await fetch('/api/settings', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(this.form)
+                        });
+                        if (res.ok) {
+                            this.message = 'Settings saved successfully';
+                            this.messageType = 'success';
+                        } else {
+                            this.message = 'Failed to save settings';
+                            this.messageType = 'error';
+                        }
+                    } catch (e) {
+                        this.message = 'Error: ' + e.message;
+                        this.messageType = 'error';
+                    }
+                    this.saving = false;
+                }
+            }
+        }
+    </script>
+</body>
+</html>

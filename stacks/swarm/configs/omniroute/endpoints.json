@@ -1,0 +1,5 @@
+{
+  "internal": "http://omniroute:20128/v1",
+  "local": "http://localhost:20128/v1",
+  "external": "https://puchalla.online/v1"
+}

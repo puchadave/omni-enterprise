@@ -1,0 +1,235 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="space-y-6">
+    <div class="flex items-center justify-between">
+        <div>
+            <h1 class="text-2xl font-bold text-white">OmniRoute Gateway</h1>
+            <p class="text-gray-400">Zentrale KI-Infrastruktur Verwaltung</p>
+        </div>
+        <a href="/" class="text-indigo-400 hover:text-indigo-300">← Zurück zum Dashboard</a>
+    </div>
+
+    <!-- Stats -->
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div class="bg-gray-800 p-4 rounded-xl border border-gray-700">
+            <div class="text-gray-400 text-sm">Provider</div>
+            <div class="text-2xl font-bold text-white" id="stat-providers">0</div>
+        </div>
+        <div class="bg-gray-800 p-4 rounded-xl border border-gray-700">
+            <div class="text-gray-400 text-sm">Modelle</div>
+            <div class="text-2xl font-bold text-white" id="stat-models">0</div>
+        </div>
+        <div class="bg-gray-800 p-4 rounded-xl border border-gray-700">
+            <div class="text-gray-400 text-sm">Routing-Regeln</div>
+            <div class="text-2xl font-bold text-white" id="stat-rules">0</div>
+        </div>
+        <div class="bg-gray-800 p-4 rounded-xl border border-gray-700">
+            <div class="text-gray-400 text-sm">Routing-Richtlinien</div>
+            <div class="text-2xl font-bold text-white" id="stat-policies">0</div>
+        </div>
+    </div>
+
+    <!-- Provider Section -->
+    <div class="bg-gray-800 rounded-xl border border-gray-700 p-6">
+        <div class="flex items-center justify-between mb-4">
+            <h2 class="text-xl font-bold text-white">Provider-Verwaltung</h2>
+            <button onclick="showProviderForm()" class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg text-sm">Provider hinzufügen</button>
+        </div>
+        <div id="provider-form" class="hidden mb-6 p-4 bg-gray-700/50 rounded-lg border border-gray-600">
+            <form id="provider-form-el" class="space-y-3 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <input type="text" id="pr-name" placeholder="Name" class="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white">
+                <select id="pr-type" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                    <option value="text">Text</option>
+                    <option value="image">Bild</option>
+                    <option value="video">Video</option>
+                    <option value="embedding">Embedding</option>
+                    <option value="multimodal">Multimodal</option>
+                </select>
+                <input type="text" id="pr-endpoint" placeholder="API Endpoint" class="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white">
+                <input type="password" id="pr-key" placeholder="API Key (verschlüsselt)" class="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white">
+                <input type="number" id="pr-priority" placeholder="Priorität (100=Standard)" value="100" class="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white">
+                <input type="text" id="pr-caps" placeholder="Fähigkeiten (kommagetrennt)" class="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white">
+                <button type="submit" class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg col-span-2 md:col-span-1">Provider erstellen</button>
+                <button type="button" onclick="hideProviderForm()" class="text-gray-400 hover:text-white px-4 py-2 rounded-lg col-span-2 md:col-span-1">Abbrechen</button>
+            </form>
+        </div>
+        <div id="provider-list" class="space-y-2">
+            <!-- Loaded via JS -->
+        </div>
+    </div>
+
+    <!-- Model Section -->
+    <div class="bg-gray-800 rounded-xl border border-gray-700 p-6 mt-6">
+        <div class="flex items-center justify-between mb-4">
+            <h2 class="text-xl font-bold text-white">Model Registry</h2>
+            <button onclick="showModelForm()" class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg text-sm">Modell registrieren</button>
+        </div>
+        <div id="model-form" class="hidden mb-6 p-4 bg-gray-700/50 rounded-lg border border-gray-600">
+            <form id="model-form-el" class="space-y-3 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <select id="mr-provider" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white"></select>
+                <input type="text" id="mr-model-id" placeholder="Model ID" class="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white">
+                <input type="text" id="mr-name" placeholder="Modellname" class="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white">
+                <select id="mr-category" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                    <option value="text">Text</option>
+                    <option value="image">Bild</option>
+                    <option value="video">Video</option>
+                    <option value="embedding">Embedding</option>
+                    <option value="multimodal">Multimodal</option>
+                </select>
+                <input type="number" id="mr-context" placeholder="Context Window" value="4096" class="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white">
+                <input type="text" id="mr-caps" placeholder="Fähigkeiten (kommagetrennt)" class="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white">
+                <button type="submit" class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg col-span-2 md:col-span-1">Modell registrieren</button>
+                <button type="button" onclick="hideModelForm()" class="text-gray-400 hover:text-white px-4 py-2 rounded-lg col-span-2 md:col-span-1">Abbrechen</button>
+            </form>
+        </div>
+        <div id="model-list" class="space-y-2">
+            <!-- Loaded via JS -->
+        </div>
+    </div>
+
+    <script>
+        async function loadStats() {
+            try {
+                const data = await apiFetch('/api/omniroute/stats');
+                document.getElementById('stat-providers').textContent = data.providers || 0;
+                document.getElementById('stat-models').textContent = data.models || 0;
+                document.getElementById('stat-rules').textContent = data.routing_rules || 0;
+                document.getElementById('stat-policies').textContent = data.routing_policies || 0;
+            } catch (e) {
+                console.error('Stats load failed:', e);
+            }
+        }
+
+        async function loadProviders() {
+            try {
+                const data = await apiFetch('/api/omniroute/providers');
+                const container = document.getElementById('provider-list');
+                container.innerHTML = '';
+                data.providers.forEach(p => {
+                    const div = document.createElement('div');
+                    div.className = 'flex items-center justify-between p-3 bg-gray-700/50 rounded border border-gray-600 text-sm';
+                    div.innerHTML = `
+                        <div>
+                            <div class="font-medium text-white">${p.name}</div>
+                            <div class="text-xs text-gray-400">${p.provider_type} • ${p.api_endpoint}</div>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <span class="px-2 py-1 rounded text-xs ${p.health_status === 'healthy' ? 'bg-green-900 text-green-200' : p.health_status === 'degraded' ? 'bg-yellow-900 text-yellow-200' : 'bg-red-900 text-red-200'}">
+                                ${p.health_status}
+                            </span>
+                            <span class="px-2 py-1 rounded text-xs bg-gray-600">${p.priority}</span>
+                        </div>
+                    `;
+                    container.appendChild(div);
+                });
+
+                // Populate provider select in model form
+                const select = document.getElementById('mr-provider');
+                select.innerHTML = '';
+                data.providers.forEach(p => {
+                    const opt = document.createElement('option');
+                    opt.value = p.provider_id;
+                    opt.textContent = p.name;
+                    select.appendChild(opt);
+                });
+            } catch (e) {
+                console.error('Providers load failed:', e);
+            }
+        }
+
+        async function loadModels() {
+            try {
+                const data = await apiFetch('/api/omniroute/models');
+                const container = document.getElementById('model-list');
+                container.innerHTML = '';
+                data.models.forEach(m => {
+                    const div = document.createElement('div');
+                    div.className = 'flex items-center justify-between p-3 bg-gray-700/50 rounded border border-gray-600 text-sm';
+                    div.innerHTML = `
+                        <div>
+                            <div class="font-medium text-white">${m.model_name}</div>
+                            <div class="text-xs text-gray-400">${m.model_id} • ${m.model_category}</div>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <span class="px-2 py-1 rounded text-xs bg-gray-600 text-white">${m.context_window}</span>
+                            <span class="px-2 py-1 rounded text-xs bg-gray-600 text-white">€${m.input_price_per_1k}/1k</span>
+                        </div>
+                    `;
+                    container.appendChild(div);
+                });
+            } catch (e) {
+                console.error('Models load failed:', e);
+            }
+        }
+
+        function showProviderForm() {
+            document.getElementById('provider-form').classList.remove('hidden');
+        }
+        function hideProviderForm() {
+            document.getElementById('provider-form').classList.add('hidden');
+        }
+        function showModelForm() {
+            document.getElementById('model-form').classList.remove('hidden');
+        }
+        function hideModelForm() {
+            document.getElementById('model-form').classList.add('hidden');
+        }
+
+        document.getElementById('provider-form-el').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const caps = document.getElementById('pr-caps').value.split(',').map(s => s.trim()).filter(s => s);
+            try {
+                await apiFetch('/api/omniroute/providers', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: document.getElementById('pr-name').value,
+                        provider_type: document.getElementById('pr-type').value,
+                        api_endpoint: document.getElementById('pr-endpoint').value,
+                        api_key_encrypted: document.getElementById('pr-key').value,
+                        priority: parseInt(document.getElementById('pr-priority').value),
+                        capabilities: caps,
+                    })
+                });
+                hideProviderForm();
+                document.getElementById('provider-form-el').reset();
+                loadProviders();
+                loadStats();
+            } catch (err) {
+                alert('Fehler: ' + err.message);
+            }
+        });
+
+        document.getElementById('model-form-el').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const caps = document.getElementById('mr-caps').value.split(',').map(s => s.trim()).filter(s => s);
+            try {
+                await apiFetch('/api/omniroute/models', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        provider_id: document.getElementById('mr-provider').value,
+                        model_id: document.getElementById('mr-model-id').value,
+                        model_name: document.getElementById('mr-name').value,
+                        model_category: document.getElementById('mr-category').value,
+                        context_window: parseInt(document.getElementById('mr-context').value),
+                        capabilities: caps,
+                    })
+                });
+                hideModelForm();
+                document.getElementById('model-form-el').reset();
+                loadModels();
+                loadStats();
+            } catch (err) {
+                alert('Fehler: ' + err.message);
+            }
+        });
+
+        // Initialize
+        loadStats();
+        loadProviders();
+        loadModels();
+    </script>
+</div>
+{% endblock %}

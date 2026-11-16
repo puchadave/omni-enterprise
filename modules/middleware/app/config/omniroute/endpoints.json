@@ -1,0 +1,6 @@
+{
+  "primary": "https://puchalla.online/v1",
+  "local": "http://localhost:20128/v1",
+  "public": "https://puchalla.online/v1",
+  "note": "Im WebGUI nur API-Key + gewünschte Adresse eintragen; Auto-Kombo-Defaults sind vorbelegt."
+}

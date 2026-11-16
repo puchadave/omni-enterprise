@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="space-y-6">
+    <div class="flex items-center justify-between">
+        <div>
+            <h1 class="text-2xl font-bold text-white">Produkt-Export</h1>
+            <p class="text-gray-400">Manueller Export von Produkten zu Google Merchant Center</p>
+        </div>
+        <a href="/google" class="text-indigo-400 hover:text-indigo-300">← Zurück zum Dashboard</a>
+    </div>
+
+    <!-- Export Form -->
+    <div class="bg-gray-800 rounded-xl border border-gray-700 p-6">
+        <h2 class="text-xl font-bold text-white mb-4">Neuen Export erstellen</h2>
+        <form id="export-form" class="space-y-4">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">Google Konto</label>
+                    <select id="account-select" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white focus:outline-none focus:border-indigo-500">
+                        <option value="">Konto auswählen...</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">Produkt SKU</label>
+                    <input type="text" id="product-sku" placeholder="z.B. TEST001" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white focus:outline-none focus:border-indigo-500">
+                </div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">KI-Titel (optional)</label>
+                    <input type="text" id="ai-title" placeholder="AI-optimierter Titel" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white focus:outline-none focus:border-indigo-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">Shop URL (optional)</label>
+                    <input type="text" id="shop-url" placeholder="https://shop.de" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white focus:outline-none focus:border-indigo-500">
+                </div>
+            </div>
+            <button type="submit" class="bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-2 rounded-lg font-medium w-full transition-colors">
+                Export zu Google Merchant Center
+            </button>
+        </form>
+        <div id="export-result" class="mt-4 p-4 rounded-lg hidden"></div>
+    </div>
+
+    <!-- Recent Exports -->
+    <div class="bg-gray-800 rounded-xl border border-gray-700 p-6 mt-6">
+        <h2 class="text-xl font-bold text-white mb-4">Letzte Exporte</h2>
+        <div id="recent-exports" class="space-y-2">
+            <!-- Loaded via JS -->
+        </div>
+    </div>
+
+    <script>
+        async function loadAccounts() {
+            try {
+                const data = await apiFetch('/api/google/accounts');
+                const select = document.getElementById('account-select');
+                select.innerHTML = '<option value="">Konto auswählen...</option>';
+                data.accounts.forEach(acc => {
+                    const opt = document.createElement('option');
+                    opt.value = acc.id;
+                    opt.textContent = `${acc.account_name} (${acc.merchant_id})`;
+                    select.appendChild(opt);
+                });
+            } catch (e) {
+                console.error('Accounts load failed:', e);
+            }
+        }
+
+        async function loadRecent() {
+            try {
+                const data = await apiFetch('/api/google/export/queue?limit=10');
+                const container = document.getElementById('recent-exports');
+                container.innerHTML = '';
+                data.queue.slice(0, 10).forEach(item => {
+                    const div = document.createElement('div');
+                    div.className = 'flex items-center justify-between p-3 bg-gray-700/50 rounded border border-gray-600 text-sm';
+                    div.innerHTML = `
+                        <div>
+                            <div class="font-medium text-white">${item.product_sku}</div>
+                            <div class="text-xs text-gray-400">${item.offer_id}</div>
+                        </div>
+                        <span class="text-xs px-2 py-1 rounded bg-gray-600 text-gray-300">${item.status}</span>
+                    `;
+                    container.appendChild(div);
+                });
+            } catch (e) {
+                console.error('Recent exports load failed:', e);
+            }
+        }
+
+        document.getElementById('export-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const accountId = document.getElementById('account-select').value;
+            const sku = document.getElementById('product-sku').value;
+            const aiTitle = document.getElementById('ai-title').value;
+            const shopUrl = document.getElementById('shop-url').value;
+
+            if (!accountId || !sku) {
+                alert('Bitte Konto und SKU auswählen');
+                return;
+            }
+
+            try {
+                const data = await apiFetch('/api/google/export', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ account_id: accountId, product_sku: sku, ai_title: aiTitle || null, shop_url: shopUrl || null })
+                });
+                const resultDiv = document.getElementById('export-result');
+                resultDiv.className = 'mt-4 p-4 rounded-lg bg-green-900/20 border border-green-500/50 text-green-200';
+                resultDiv.classList.remove('hidden');
+                resultDiv.textContent = `Export gestartet: ${data.export_id}`;
+                document.getElementById('product-sku').value = '';
+                loadRecent();
+            } catch (err) {
+                alert('Export fehlgeschlagen: ' + err.message);
+            }
+        });
+
+        // Initialize
+        loadAccounts();
+        loadRecent();
+    </script>
+</div>
+{% endblock %}

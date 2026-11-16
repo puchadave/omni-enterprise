@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Header -->
+    <div class="flex items-center justify-between">
+        <div>
+            <h1 class="text-2xl font-bold text-white">Google Merchant Center</h1>
+            <p class="text-gray-400">Autonomer Produkt-Export zu Google Shopping</p>
+        </div>
+        <a href="/google/export" class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg font-medium transition-colors">
+            Produkt exportieren
+        </a>
+    </div>
+
+    <!-- Stats Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div class="bg-gray-800 p-4 rounded-xl border border-gray-700">
+            <div class="text-gray-400 text-sm">Konten</div>
+            <div class="text-2xl font-bold text-white" id="stat-accounts">0</div>
+        </div>
+        <div class="bg-gray-800 p-4 rounded-xl border border-gray-700">
+            <div class="text-gray-400 text-sm">Export-Warteschlange</div>
+            <div class="text-2xl font-bold text-white" id="stat-queue">0</div>
+        </div>
+        <div class="bg-gray-800 p-4 rounded-xl border border-gray-700">
+            <div class="text-gray-400 text-sm">Erfolgreich exportiert</div>
+            <div class="text-2xl font-bold text-white" id="stat-completed">0</div>
+        </div>
+        <div class="bg-gray-800 p-4 rounded-xl border border-gray-700">
+            <div class="text-gray-400 text-sm">Fehler</div>
+            <div class="text-2xl font-bold text-red-400" id="stat-errors">0</div>
+        </div>
+    </div>
+
+    <!-- Accounts Section -->
+    <div class="bg-gray-800 rounded-xl border border-gray-700 p-6">
+        <h2 class="text-xl font-bold text-white mb-4">Google Konten</h2>
+        <div id="accounts-list" class="space-y-3">
+            <!-- Accounts loaded via JS -->
+        </div>
+    </div>
+
+    <!-- Export Queue Section -->
+    <div class="bg-gray-800 rounded-xl border border-gray-700 p-6 mt-6">
+        <div class="flex items-center justify-between mb-4">
+            <h2 class="text-xl font-bold text-white">Export-Warteschlange</h2>
+            <button onclick="loadQueue()" class="text-sm text-indigo-400 hover:text-indigo-300">Aktualisieren</button>
+        </div>
+        <div id="queue-list" class="space-y-2">
+            <!-- Queue items loaded via JS -->
+        </div>
+    </div>
+
+    <script>
+        async function loadStats() {
+            try {
+                const data = await apiFetch('/api/google/export/stats');
+                document.getElementById('stat-accounts').textContent = data.stats.total || 0;
+                document.getElementById('stat-queue').textContent = data.stats.pending || 0;
+                document.getElementById('stat-completed').textContent = data.stats.completed || 0;
+                document.getElementById('stat-errors').textContent = data.stats.errors || 0;
+            } catch (e) {
+                console.error('Stats load failed:', e);
+            }
+        }
+
+        async function loadAccounts() {
+            try {
+                const data = await apiFetch('/api/google/accounts');
+                const container = document.getElementById('accounts-list');
+                container.innerHTML = '';
+                data.accounts.forEach(acc => {
+                    const div = document.createElement('div');
+                    div.className = 'flex items-center justify-between p-3 bg-gray-700/50 rounded-lg border border-gray-600';
+                    div.innerHTML = `
+                        <div>
+                            <div class="font-medium text-white">${acc.account_name}</div>
+                            <div class="text-sm text-gray-400">Merchant ID: ${acc.merchant_id}</div>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <span class="px-2 py-1 rounded text-xs ${acc.is_authenticated ? 'bg-green-900 text-green-200' : 'bg-red-900 text-red-200'}">
+                                ${acc.is_authenticated ? 'Verbunden' : 'Nicht verbunden'}
+                            </span>
+                            <button onclick="testConnection('${acc.id}')" class="text-xs text-indigo-400 hover:text-indigo-300">Test</button>
+                        </div>
+                    `;
+                    container.appendChild(div);
+                });
+            } catch (e) {
+                console.error('Accounts load failed:', e);
+            }
+        }
+
+        async function loadQueue() {
+            try {
+                const data = await apiFetch('/api/google/export/queue?limit=20');
+                const container = document.getElementById('queue-list');
+                container.innerHTML = '';
+                data.queue.forEach(item => {
+                    const div = document.createElement('div');
+                    div.className = 'flex items-center justify-between p-3 bg-gray-700/50 rounded border border-gray-600 text-sm';
+                    const statusColor = item.status === 'completed' ? 'text-green-400' : item.status === 'error' ? 'text-red-400' : 'text-yellow-400';
+                    div.innerHTML = `
+                        <div>
+                            <div class="font-medium text-white">${item.product_sku}</div>
+                            <div class="text-xs text-gray-400">${item.offer_id} • Score: ${item.validation_score || 0}</div>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <span class="px-2 py-1 rounded ${statusColor}">${item.status}</span>
+                            ${item.status === 'error' ? `<button onclick="retryItem('${item.export_id}')" class="text-xs text-indigo-400 hover:text-indigo-300">Wiederholen</button>` : ''}
+                        </div>
+                    `;
+                    container.appendChild(div);
+                });
+            } catch (e) {
+                console.error('Queue load failed:', e);
+            }
+        }
+
+        async function testConnection(accountId) {
+            try {
+                const data = await apiFetch(`/api/google/accounts/${encodeURIComponent(accountId)}/test`, { method: 'POST' });
+                alert(`Verbindung: ${data.health.status}`);
+                loadAccounts();
+            } catch (e) {
+                alert('Verbindungstest fehlgeschlagen: ' + e.message);
+            }
+        }
+
+        async function retryItem(exportId) {
+            try {
+                await apiFetch(`/api/google/export/retry?export_id=${encodeURIComponent(exportId)}`, { method: 'POST' });
+                loadQueue();
+            } catch (e) {
+                alert('Wiederholung fehlgeschlagen: ' + e.message);
+            }
+        }
+
+        // Initialize
+        loadStats();
+        loadAccounts();
+        loadQueue();
+        setInterval(loadQueue, 30000);
+    </script>
+</div>
+{% endblock %}

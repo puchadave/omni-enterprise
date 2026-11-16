@@ -1,0 +1,144 @@
+# ==============================================================================
+# Omni-Core ERP & BI Middleware - Proxmox LXC Configuration Example
+# Author: puchadave <github.com/puchadave>
+# Repository: https://github.com/puchadave/omni-core-middleware
+# Version: 1.0.0
+# ==============================================================================
+
+# Diese Datei dient als Vorlage für die Proxmox LXC Installation.
+# Kopieren Sie diese Datei und passen Sie die Werte an Ihre Umgebung an.
+# Entfernen Sie keine Kommentare ohne Verständnis der Zusammenhänge.
+
+# ==============================================================================
+# ALLGEMEINE INSTALLATIONS-EINSTELLUNGEN
+# ==============================================================================
+
+# Repository Informationen
+GIT_REPO_URL="https://github.com/puchadave/omni-core-middleware.git"
+GIT_BRANCH="main"
+INSTALL_DIR="/opt/omni-core"
+
+# LXC Container Einstellungen
+# Diese Werte werden im Installer interaktiv abgefragt oder können über Umgebungsvariablen gesetzt werden
+
+# Container-ID (CTID)
+# Wählen Sie eine verfügbare CTID. 0 = automatische Vergabe (erste freie ID)
+LXC_CTID=0
+
+# Hostname des Containers
+LXC_HOSTNAME="wawi"
+
+# Ressourcenzuweisung
+LXC_CORES=4              # CPU-Kerne (halbe Anzahl der verfügbaren Kerne, max 4)
+LXC_MEMORY=4096          # RAM in MB (70% der verfügbaren Memory, max 16GB)
+LXC_DISK=32              # Root Disk Größe in GB
+LXC_STORAGE="local-lvm"  # Storage Pool
+LXC_BRIDGE="vmbr0"       # Netzwerkbrücke
+
+# Betriebssystem Template
+# Debian 13 Standard wird empfohlen
+LXC_TEMPLATE="debian-13-standard"
+
+# Netzwerkeinstellungen
+LXC_NETWORK="dhcp"       # DHCP oder statische IP: "static:192.168.1.100/24"
+LXC_GATEWAY="192.168.1.1" # Gateway (falls statisches IP)
+LXC_DNS="8.8.8.8 8.8.4.4" # DNS-Server
+
+# ==============================================================================
+# NETZWERKKONFIGURATION
+# ==============================================================================
+
+# Port Forwarding (auf Proxmox Host Ebene, nicht automatisch im Container)
+# Diese Ports werden empfohlen, können aber angepasst werden, wenn das Projekt andere Ports nutzt
+
+# Backend API Port
+PORT_API=8000
+
+# Frontend Port
+PORT_FRONTEND=3000
+
+# SSH Port (falls benötigt, Standard ist Proxmox SSH)
+# NICHT mit Container-SSH port überschreiben ohne Wissen
+
+# ==============================================================================
+# DIENSTKONFIGURATIONEN
+# ==============================================================================
+
+# PostgreSQL Einstellungen
+# Diese werden automatisch basierend auf zugewiesenem RAM konfiguriert
+# < 2GB RAM: 128MB shared_buffers, 10 Connections
+# 2-4 GB RAM: 256MB shared_buffers, 20 Connections
+# > 4 GB RAM: 512MB shared_buffers, 40 Connections
+
+POSTGRES_MAX_CONNECTIONS=20
+POSTGRES_SHARED_BUFFERS="256MB"
+POSTGRES_WORK_MEM="8MB"
+
+# Redis Einstellungen
+REDIS_MAX_MEMORY="256mb"   # Maximaler Redis Speicherverbrauch
+REDIS_EVICTION_POLICY="allkeys-lru" # Eviction Strategie
+
+# Matterhorn Import
+MATTERHORN_IMPORT_URL="https://matterhorn-moda.de/xmldata/products_full.php?type=xml"
+MATTERHORN_DEV_URL="https://matterhorn-moda.de/xmldata/products_full_dev.php?type=products_xml_ver2"
+
+# OmniRoute Gateway
+OMNI_ROUTE_URL="http://host.docker.internal:20128"
+OMNI_ROUTE_API_KEY="test-key" # Sollte in Produktion ersetzt werden
+
+# Shopware
+SHOPWARE_URL=""          # Falls konfiguriert: https://your-shopware-instance.com
+SHOPWARE_API_KEY=""      # API Key für Shopware Synchronisation
+
+# ==============================================================================
+# ADMINISTRATOR EINRICHTUNG
+# ==============================================================================
+
+# Admin Zugang (wird während der Installation interaktiv abgefragt, kann hier für non-interactive gesetzt werden)
+ADMIN_EMAIL="admin@omni-core.local"
+# ADMIN_PASSWORD wird während der generierten, es sei denn non-interactive mode wird verwendet
+# ADMIN_PASSWORD="IhrSicheresPasswort123!"
+
+# JWT und Session Secrets
+# Diese werden automatisch generiert, können aber überschrieben werden
+SECRET_KEY="$(openssl rand -hex 32)"  # Wird beim Generieren überschrieben
+JWT_SECRET="$(openssl rand -hex 64)"  # Wird beim Generieren überschrieben
+
+# ==============================================================================
+# INTEGRATIONSINSTELLUNGEN
+# ==============================================================================
+
+# Marketing Engine
+ENABLE_MARKETING_ENGINE=true
+
+# Sales Automation
+ENABLE_SALES_AUTOMATION=true
+
+# Channel Adapter
+ENABLE_CHANNEL_ADAPTERS=true
+
+# ==============================================================================
+# RESSOURCENPROFIL
+# ==============================================================================
+
+# Performance Profil basierend auf verfügbaren Ressourcen:
+# ECONOMY: minimale Parallelität, niedrige RAM-Belegung (für 2GB RAM oder weniger)
+# BALANCED: Standard, ausgewogen (Standard-Einstellung)
+# PERFORMANCE: höhere Parallelität, größere Pools (für 4GB+ RAM)
+
+PERFORMANCE_PROFILE="BALANCED"
+
+# ==============================================================================
+# HINWEISE
+# ==============================================================================
+
+# 1. Diese Datei nach /wawi/.env kopieren oder der Installer erstellt sie automatisch
+# 2. WICHTIG: Ändern Sie OMNI_ROUTE_API_KEY in Produktion durch einen gültigen Schlüssel
+# 3. Passen Sie MATTERHORN_IMPORT_URL bei Bedarf an
+# 4. Bei statischer IP: LXC_NETWORK="static:192.168.1.100/24" und LXC_GATEWAY setzen
+# 5. Nach der Installation: http://<CT-IP>:8000 für das WebIF aufrufen
+# 6. Nach der Installation: http://<CT-IP>:8000/docs für API Dokumentation
+
+# ==============================================================================
+# ENDE DER KONFIGURATIONS-VORLAGE
+# ==============================================================================

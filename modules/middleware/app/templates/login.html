@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="de" class="h-full">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Anmeldung | OMNI-CORE</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="h-full min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4">
+  <div class="w-full max-w-md bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-xl">
+    <div class="mb-5">
+      <div class="text-xl font-extrabold tracking-tight">OMNI-CORE <span class="text-indigo-400">Verwaltung</span></div>
+      <h1 class="text-2xl font-bold mt-3">Anmeldung</h1>
+      <p class="text-sm text-slate-400 mt-1">Melden Sie sich an, um auf das Admin-Portal zuzugreifen. Ihre Sitzung wird sicher geschützt.</p>
+    </div>
+
+    <form id="login-form" class="space-y-3">
+      <div>
+        <label class="block text-sm text-slate-300 mb-1" for="identifier">E-Mail-Adresse oder Benutzername</label>
+        <input id="identifier" autocomplete="username" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 focus:outline-none focus:border-indigo-500" placeholder="z. B. admin@example.com">
+      </div>
+      <div>
+        <label class="block text-sm text-slate-300 mb-1" for="password">Passwort</label>
+        <input id="password" type="password" autocomplete="current-password" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 focus:outline-none focus:border-indigo-500" placeholder="Ihr Passwort">
+      </div>
+      <button id="login-btn" class="w-full bg-indigo-600 hover:bg-indigo-500 rounded-lg px-4 py-2.5 font-semibold transition">Anmelden</button>
+    </form>
+
+    <div class="my-4 flex items-center gap-3 text-xs text-slate-500"><div class="h-px bg-slate-800 flex-1"></div><span>oder (für technische Zugänge)</span><div class="h-px bg-slate-800 flex-1"></div></div>
+
+    <details class="bg-slate-950/40 border border-slate-800 rounded-lg p-3">
+      <summary class="text-sm text-slate-300 cursor-pointer">Mit technischem Zugangsschlüssel anmelden</summary>
+      <form id="apikey-form" class="space-y-3 mt-3">
+        <div>
+          <label class="block text-sm text-slate-300 mb-1" for="api-key">Zugangsschlüssel</label>
+          <input id="api-key" type="password" autocomplete="off" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5" placeholder="Internen Schlüssel eingeben">
+          <p class="text-xs text-slate-500 mt-1">Nur verwenden, wenn Ihnen ein interner API-Zugangsschlüssel zugewiesen wurde.</p>
+        </div>
+        <button id="key-btn" class="w-full bg-slate-700 hover:bg-slate-600 rounded-lg px-4 py-2.5 font-semibold transition">Mit Schlüssel anmelden</button>
+      </form>
+    </details>
+
+    <div id="error" class="mt-3 text-sm text-red-300 min-h-[1.25rem]"></div>
+    <p class="text-xs text-slate-500 mt-4">Die Anmeldung erfolgt über eine geschützte Sitzung. Bei Problemen prüfen Sie Ihre Zugangsdaten oder wenden Sie sich an eine Administratorin/einen Administrator.</p>
+  </div>
+  {% include "partials/api_client.html" %}
+  <script>
+    const err = document.getElementById('error');
+    function setBusy(formId, busy){const b=document.querySelector(formId+' button[type=submit], '+formId+' button:not([type])') || document.getElementById(formId==='login-form'?'login-btn':'key-btn'); if(!b) return; b.disabled=busy; b.dataset.orig=b.dataset.orig||b.textContent; b.textContent=busy?'Anmeldung läuft…':b.dataset.orig;}
+    function friendlyLoginError(e){
+      const m=(e&&e.message)||'';
+      if(/401|ungültig|invalid|credential|passwor/i.test(m)) return 'Anmeldung fehlgeschlagen. Bitte prüfen Sie E-Mail/Benutzername und Passwort.';
+      if(/verbindung|netzwerk|network/i.test(m)) return 'Keine Verbindung zum Server. Bitte prüfen Sie Ihre Netzwerkverbindung.';
+      return m || 'Anmeldung fehlgeschlagen. Bitte versuchen Sie es erneut.';
+    }
+    async function doLogin(body, formSel){
+      err.textContent=''; setBusy(formSel,true);
+      try{ await apiFetch('/api/auth/login', {method:'POST', body: JSON.stringify(body)}); location.href = '/'; }
+      catch(e){ err.textContent = friendlyLoginError(e); }
+      finally{ setBusy(formSel,false); }
+    }
+    document.getElementById('login-form').addEventListener('submit', (e)=>{ e.preventDefault(); const id=document.getElementById('identifier').value.trim(); const pw=document.getElementById('password').value; if(!id||!pw){err.textContent='Bitte geben Sie Benutzername/E-Mail und Passwort ein.'; return;} doLogin({email:id, password:pw}, '#login-form'); });
+    document.getElementById('apikey-form').addEventListener('submit', (e)=>{ e.preventDefault(); const k=document.getElementById('api-key').value.trim(); if(!k){err.textContent='Bitte geben Sie einen Zugangsschlüssel ein.'; return;} doLogin({api_key:k}, '#apikey-form'); });
+  </script>
+</body>
+</html>

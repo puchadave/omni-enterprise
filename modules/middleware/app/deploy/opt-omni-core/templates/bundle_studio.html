@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Bundles | Omni-Core Admin{% endblock %}
+{% block content %}
+<div x-data="bundlePage()" x-init="load()" class="space-y-4 max-w-7xl mx-auto">
+  <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
+    <div><h1 class="text-2xl md:text-3xl font-bold">Bundle Studio</h1><p class="text-slate-400">Bundles erstellen, verwalten und Bestand/Intelligenz aus realen Produktdaten ableiten.</p></div>
+    <button @click="load()" class="btn btn-secondary">Aktualisieren</button>
+  </div>
+
+  <div class="grid lg:grid-cols-2 gap-4">
+    <div class="card p-4 space-y-3">
+      <h2 class="font-semibold">Bundle anlegen / aktualisieren</h2>
+      <div><label class="label">Bundle-SKU *</label><input x-model="form.bundle_sku" class="input font-mono" placeholder="BUNDLE-001"></div>
+      <div><label class="label">Titel *</label><input x-model="form.title" class="input"></div>
+      <div><label class="label">Komponenten-SKUs (kommagetrennt) *</label><input x-model="form.componentsText" class="input font-mono" placeholder="SKU-A, SKU-B"></div>
+      <button @click="save()" class="btn btn-primary" :disabled="saving">Speichern</button>
+      <p class="text-xs text-slate-500">Der Bundle-Bestand wird serverseitig aus Komponenten berechnet.</p>
+    </div>
+    <div class="card p-4">
+      <h2 class="font-semibold mb-2">Bundle Intelligence</h2>
+      <template x-if="intelError"><div class="text-sm text-red-300" x-text="intelError"></div></template>
+      <pre class="text-xs bg-slate-950 border border-slate-800 rounded p-3 overflow-auto max-h-80" x-text="format(intel)"></pre>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="px-4 py-3 border-b border-slate-800 flex justify-between"><h2 class="font-semibold">Vorhandene Bundles</h2><span class="text-sm text-slate-400" x-text="items.length + ' Bundles'"></span></div>
+    <template x-if="error"><div class="p-4 text-red-300" x-text="error"></div></template>
+    <div class="table-wrap">
+      <table class="tbl">
+        <thead><tr><th>Bundle-SKU</th><th>Titel</th><th>Komponenten</th><th>Aktualisiert</th><th>Aktionen</th></tr></thead>
+        <tbody>
+          <template x-for="b in items" :key="b.bundle_sku||b.sku">
+            <tr>
+              <td class="font-mono text-xs" x-text="b.bundle_sku||b.sku"></td>
+              <td x-text="b.title||'—'"></td>
+              <td class="text-xs" x-text="components(b)"></td>
+              <td class="text-xs text-slate-400" x-text="fmtDate(b.updated_at)"></td>
+              <td><button class="text-red-400 hover:text-red-300" @click="remove(b)">Löschen</button></td>
+            </tr>
+          </template>
+          <tr x-show="!loading && items.length===0"><td colspan="5" class="p-6 text-center text-slate-400">Keine Bundles vorhanden.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function bundlePage(){return{items:[],intel:null,loading:false,saving:false,error:'',intelError:'',form:{bundle_sku:'',title:'',componentsText:''},async load(){this.loading=true; this.error=''; this.intelError=''; try{const d=await apiFetch('/api/bundles'); this.items=Array.isArray(d)?d:(d.items||[]);}catch(e){this.error=e.message; this.items=[];} try{this.intel=await apiFetch('/api/bundles/intelligence');}catch(e){this.intelError=e.message; this.intel=null;} this.loading=false;},components(b){const c=b.component_skus_json||b.component_skus||b.components||[]; return Array.isArray(c)?c.join(', '):String(c||'—');},format(d){try{return JSON.stringify(d,null,2);}catch(_){return String(d||'—');}},async save(){const comps=this.form.componentsText.split(',').map(s=>s.trim()).filter(Boolean); if(!this.form.bundle_sku||!this.form.title||comps.length===0){toast('SKU, Titel und Komponenten erforderlich','error'); return;} this.saving=true; try{await apiFetch('/api/bundles',{method:'POST',body:JSON.stringify({bundle_sku:this.form.bundle_sku,title:this.form.title,component_skus:comps})}); toast('Bundle gespeichert','success'); this.form={bundle_sku:'',title:'',componentsText:''}; await this.load();}catch(e){toast(e.message,'error')} this.saving=false;},async remove(b){const sku=b.bundle_sku||b.sku; if(!sku||!confirm(`Bundle ${sku} löschen?`)) return; try{await apiFetch('/api/bundles/'+encodeURIComponent(sku),{method:'DELETE'}); toast('Bundle gelöscht','success'); await this.load();}catch(e){toast(e.message,'error')}}}}
+</script>
+{% endblock %}

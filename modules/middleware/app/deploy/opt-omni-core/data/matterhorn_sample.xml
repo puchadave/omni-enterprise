@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<products>
+  <product>
+    <sku>MH-1001</sku>
+    <title>Sommerkleid Blau</title>
+    <price>29.90</price>
+    <category>Kleider</category>
+    <stock>12</stock>
+    <ean>4006381333931</ean>
+    <description>Leichtes Sommerkleid in Blau, Baumwolle.</description>
+  </product>
+  <product>
+    <sku>MH-1002</sku>
+    <title>Herren Jeans Classic</title>
+    <price>49.50</price>
+    <category>Hosen</category>
+    <stock>8</stock>
+    <ean>4006381333948</ean>
+    <description>Klassische Herrenjeans, Regular Fit.</description>
+  </product>
+  <product>
+    <sku>MH-1003</sku>
+    <title>Sport Sneaker Weiss</title>
+    <price>59.00</price>
+    <category>Schuhe</category>
+    <stock>5</stock>
+    <ean>4006381333955</ean>
+    <description>Weisse Sneaker fuer Alltag und Sport.</description>
+  </product>
+</products>

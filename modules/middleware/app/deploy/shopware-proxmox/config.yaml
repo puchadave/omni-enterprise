@@ -1,0 +1,145 @@
+# Proxmox One-Click Shopware Deployment - central configuration
+# All infrastructure and Shopware parameters are configurable here.
+# No script should rely on hardcoded environment-specific values.
+
+proxmox:
+  # "pct" (recommended on host), "api", or "auto"
+  mode: auto
+  node: ""                      # required for API mode, auto-detected for pct
+  api_url: ""                   # e.g. https://pve.example.local:8006/api2/json
+  api_token_id: ""              # e.g. root@pam!deploy
+  api_token_secret: ""          # prefer environment variable PROXMOX_API_TOKEN_SECRET
+  verify_ssl: true
+  storage: ""                   # auto-detect if empty
+  template_storage: local       # storage that holds vztmpl templates
+  bridge: vmbr0
+  unprivileged: true
+
+container:
+  ctid: 210
+  hostname: shopware-prod
+  ostemplate: ""                # auto-select latest Debian 13 template if empty
+  cores: 4
+  memory_mb: 8192
+  swap_mb: 2048
+  disk_gb: 64
+  ip: "dhcp"                    # "dhcp" or static CIDR e.g. 192.168.10.50/24
+  gateway: ""                   # required for static IP
+  dns: "1.1.1.1 8.8.8.8"
+  onboot: true
+  nesting: true
+  keyctl: false
+  features: "nesting=1"
+  tags: "shopware,production,omni"
+
+shopware:
+  # "latest" resolves current stable release via GitHub/Packagist; or pin e.g. "6.7.16.0"
+  version: latest
+  channel: stable               # stable only
+  install_dir: /var/www/shopware
+  app_url: "https://shop.example.com"
+  app_env: prod
+  admin_user: admin
+  admin_email: "admin@example.com"
+  admin_firstname: Shopware
+  admin_lastname: Admin
+  admin_password: ""            # auto-generate and store securely if empty
+  shop_name: "Shopware Production"
+  shop_currency: EUR
+  shop_locale: de-DE
+  sales_channel_domain: ""      # defaults to app_url host
+
+database:
+  type: mariadb                 # mariadb (recommended) or mysql
+  version: "auto"               # auto-select compatible LTS/recommended
+  name: shopware
+  user: shopware
+  password: ""                  # auto-generate and store securely if empty
+  host: 127.0.0.1
+  port: 3306
+  root_password: ""             # auto-generate if empty
+
+redis:
+  enabled: true
+  host: 127.0.0.1
+  port: 6379
+  db_cache: 0
+  db_session: 1
+
+php:
+  # "auto" selects compatible version for chosen Shopware release
+  version: auto
+  memory_limit_mb: 512
+  upload_max_mb: 64
+  post_max_mb: 64
+  max_execution_time: 300
+  opcache_memory_mb: 256
+  opcache_interned_strings_mb: 32
+  opcache_max_accelerated_files: 20000
+
+webserver:
+  type: nginx
+  http_port: 80
+  https_port: 443
+  client_max_body_size_mb: 64
+  enable_http2: true
+  enable_fastcgi_cache: false   # optional, disabled by default for compatibility
+
+ssl:
+  enabled: true
+  mode: letsencrypt             # letsencrypt | existing_reverse_proxy | selfsigned | disabled
+  email: "admin@example.com"
+  staging: false
+  force_redirect: true
+  hsts: true
+  # When behind existing reverse proxy, container serves HTTP and trusts proxy headers
+  reverse_proxy_trusted_ips: []
+
+middleware:
+  # Optional: prepare API integration/connector config for external middleware.
+  # This does NOT install middleware. Set true only if needed.
+  enabled: false
+  connector_dir: /opt/omni-shopware-connector
+  api_username: omni-middleware
+  api_password: ""              # auto-generate and store securely if empty
+  api_roles: ["product:read","product:write","category:read","category:write","media:read","media:write","order:read","customer:read"]
+  webhook_base_url: ""          # middleware endpoint base URL for webhooks
+  health_endpoint_enabled: true
+
+security:
+  firewall_enabled: true
+  allow_http: true
+  allow_https: true
+  allow_ssh: true
+  ssh_port: 22
+  ssh_password_auth: false
+  ssh_permit_root_login: prohibit-password
+  fail2ban_enabled: true
+  unattended_upgrades: true
+  secrets_dir: /root/.omni-shopware-secrets
+
+backup:
+  enabled: true
+  target_dir: /var/backups/shopware   # must be outside container rootfs; mount/bind/NFS recommended
+  schedule_cron: "30 2 * * *"
+  retention_days: 14
+  compression: zstd
+  include_media: true
+  verify_integrity: true
+  test_restore: false                 # run restore test into isolated temp DB when true
+  proxmox_vzdump: false
+
+monitoring:
+  enabled: true
+  report_json: /var/log/shopware-deploy/healthcheck.json
+  interval_cron: "*/5 * * * *"
+  api_timeout_seconds: 10
+
+deployment:
+  log_dir: /var/log/shopware-deploy
+  state_dir: /var/lib/shopware-deploy
+  lock_file: /var/lock/shopware-deploy.lock
+  report_file: /var/log/shopware-deploy/deployment-report.json
+  require_dns_for_ssl: true
+  rollback_on_failure: false          # controlled rollback steps; never destructive without confirmation
+  dry_run: false

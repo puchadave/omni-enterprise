@@ -1,0 +1,198 @@
+{% extends "base.html" %}
+{% block title %}Einstellungen | OMNI-CORE{% endblock %}
+{% block content %}
+<div x-data="settingsPage()" x-init="init()" class="space-y-4 max-w-7xl mx-auto">
+  <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
+    <div>
+      <h1 class="text-2xl md:text-3xl font-bold">Einstellungen</h1>
+      <p class="text-slate-400">Richten Sie Anbindungen und Systemverhalten Schritt für Schritt ein. Geheime Zugangsdaten (z. B. API-Schlüssel) werden maskiert gespeichert und niemals im Klartext angezeigt.</p>
+    </div>
+    <div class="flex gap-2">
+      <a href="/ui/integrations" class="btn btn-secondary">Integrationsstatus prüfen</a>
+      <button @click="load()" class="btn btn-primary">Aktualisieren</button>
+    </div>
+  </div>
+
+  <template x-if="banner"><div class="banner" :class="bannerErr?'banner-error':'banner-success'" x-text="banner"></div></template>
+  <template x-if="error"><div class="banner banner-error"><div class="font-medium">Einstellungen konnten nicht geladen werden</div><div class="text-sm mt-1" x-text="error"></div><button class="btn btn-secondary !py-1.5 mt-2" @click="load()">Erneut versuchen</button></div></template>
+
+  <div class="grid lg:grid-cols-3 gap-4">
+    <div class="lg:col-span-2 space-y-4">
+      <template x-for="group in groups" :key="group.id">
+        <div class="card p-4" :id="'grp-'+group.id">
+          <div class="flex items-start justify-between gap-3 mb-3">
+            <div>
+              <h2 class="font-semibold text-lg" x-text="group.title"></h2>
+              <p class="text-sm text-slate-400 mt-0.5" x-text="group.help"></p>
+            </div>
+            <span class="badge" :class="groupStatus(group).cls" x-text="groupStatus(group).label"></span>
+          </div>
+          <div class="grid md:grid-cols-2 gap-4">
+            <template x-for="f in group.fields" :key="f.key">
+              <div :class="f.full?'md:col-span-2':''">
+                <label class="label"><span x-text="f.label"></span><span x-show="f.secret" class="badge badge-amber !text-[10px] !py-0">Geheim</span>
+                  <span class="tooltip-wrap" x-data="{t:false}" x-show="f.help"><button type="button" @mouseenter="t=true" @mouseleave="t=false" @focus="t=true" @blur="t=false" class="w-4 h-4 rounded-full bg-slate-700 text-[10px]">?</button><span x-show="t" x-cloak class="tooltip-bubble" x-text="f.help"></span></span>
+                </label>
+                <template x-if="f.type==='select'">
+                  <select class="select" x-model="form[f.key]">
+                    <option value="">— Bitte wählen / nicht gesetzt —</option>
+                    <template x-for="opt in f.options" :key="opt.value"><option :value="opt.value" x-text="opt.label"></option></template>
+                  </select>
+                </template>
+                <template x-if="f.type==='textarea'">
+                  <textarea class="input font-mono text-xs" rows="3" x-model="form[f.key]" :placeholder="f.placeholder||''"></textarea>
+                </template>
+                <template x-if="f.type!=='select' && f.type!=='textarea'">
+                  <div class="space-y-1">
+                    <div class="relative">
+                      <input class="input" :list="f.modelList ? ('dl-'+f.key) : null" :type="f.secret && !revealed[f.key] ? 'password' : 'text'" x-model="form[f.key]" :placeholder="f.placeholder||''" autocomplete="off">
+                      <button type="button" x-show="f.secret" @click="revealed[f.key]=!revealed[f.key]" class="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-indigo-400 hover:text-indigo-300" x-text="revealed[f.key]?'Verbergen':'Anzeigen'"></button>
+                    </div>
+                    <template x-if="f.quickUrls && f.quickUrls.length">
+                      <div class="flex flex-wrap gap-1.5 mt-1">
+                        <template x-for="u in f.quickUrls" :key="u"><button type="button" @click="form[f.key]=u" class="px-2 py-1 rounded text-[11px] border border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-200" :class="form[f.key]===u?'border-indigo-500 text-white':''" x-text="u.includes('localhost')?'Lokal: '+u:'Öffentlich: '+u"></button></template>
+                        <span class="text-[11px] text-slate-500 self-center">oder eigene Adresse eintragen</span>
+                      </div>
+                    </template>
+                    <template x-if="f.modelList">
+                      <div>
+                        <datalist :id="'dl-'+f.key">
+                          <template x-for="m in gatewayModelOptions()" :key="m.id||m.model||m.name"><option :value="m.id||m.model||m.name" x-text="mLabel(m)"></option></template>
+                        </datalist>
+                        <div class="flex items-center gap-2 text-[11px] text-slate-500">
+                          <span x-show="gatewayModelsState==='loading'">Gateway-Modelle werden geladen…</span>
+                          <span x-show="gatewayModelsState==='ok'" x-text="(gatewayModels.length>0 ? gatewayModels.length+' Modell(e) vom Gateway geladen. ' : 'Keine zusätzlichen Modelle gemeldet. ') + 'Empfohlen: auto/smart & omnicore-Combos – oder Modell wählen/manuell eintragen.'"></span>
+                          <span x-show="gatewayModelsState==='not_configured'">Gateway nicht konfiguriert – Adresse/Key speichern, dann Modelle laden.</span>
+                          <span x-show="gatewayModelsState==='error'" class="text-amber-400" x-text="'Modelle nicht ladbar: '+(gatewayModelsMsg||'unbekannt')"></span>
+                          <button type="button" @click="loadGatewayModels()" class="text-indigo-400 hover:text-indigo-300 underline-offset-2 hover:underline" :disabled="gatewayModelsState==='loading'">Aktualisieren</button>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                </template>
+                <p class="help-text" x-show="f.placeholder && f.type!=='select'" x-text="'Beispiel: '+f.placeholder"></p>
+                <div class="text-[11px] text-slate-500 mt-1">Aktueller Wert: <span class="font-medium" :class="(settings[f.key] && settings[f.key]!=='')?'text-slate-300':'text-slate-500'" x-text="displayValue(f.key)"></span></div>
+              </div>
+            </template>
+          </div>
+          <div class="mt-4 flex justify-end"><button @click="saveGroup(group)" class="btn btn-primary" :disabled="saving"><span x-show="!saving" x-text="'„'+group.title+'“ speichern'"></span><span x-show="saving">Wird gespeichert…</span></button></div>
+        </div>
+      </template>
+    </div>
+
+    <div class="space-y-4">
+      <div class="card p-4">
+        <h2 class="font-semibold mb-1">Einrichtungsstatus</h2>
+        <p class="text-xs text-slate-400 mb-3">Schnellüberblick, welche Bereiche bereits konfiguriert sind.</p>
+        <div class="space-y-2">
+          <template x-for="group in groups" :key="group.id"><a :href="'#grp-'+group.id" class="flex items-center justify-between text-sm border-b border-slate-800 pb-2 hover:bg-slate-800/40 rounded px-1"><span x-text="group.title"></span><span class="badge" :class="groupStatus(group).cls" x-text="groupStatus(group).label"></span></a></template>
+        </div>
+      </div>
+
+      <div class="card p-4">
+        <div class="flex items-center justify-between mb-2"><h2 class="font-semibold">Integrationsstatus (live)</h2><a href="/ui/integrations" class="text-xs text-indigo-400 hover:underline">Details</a></div>
+        <div class="space-y-2 text-sm">
+          <template x-for="(val, name) in integrations" :key="name">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-1"><span class="capitalize" x-text="name"></span><span class="badge" :class="uiBadgeClass(normStatus(val))" x-text="uiStatusLabel(normStatus(val))"></span></div>
+          </template>
+          <div x-show="Object.keys(integrations).length===0" class="text-slate-400 text-sm">Keine Statusdaten verfügbar.</div>
+        </div>
+        <p class="help-text mt-2">Der Status zeigt die aktuelle Konfiguration/Erreichbarkeit. Es werden keine externen Verbindungen vorgetäuscht.</p>
+      </div>
+
+      <details class="card p-4">
+        <summary class="font-semibold cursor-pointer">Erweitert: einzelner Wert</summary>
+        <p class="text-xs text-slate-400 mt-2 mb-2">Für spezielle Schlüssel, die oben nicht aufgeführt sind. Nur verwenden, wenn Sie den genauen Schlüssel kennen.</p>
+        <label class="label">Schlüssel (technischer Name)</label><input x-model="rawKey" class="input font-mono text-xs" placeholder="z. B. custom_key">
+        <label class="label mt-2">Wert</label><textarea x-model="rawVal" class="input text-xs" rows="3" placeholder="Wert"></textarea>
+        <button @click="saveRaw()" class="btn btn-secondary mt-2 w-full" :disabled="saving">Wert speichern</button>
+      </details>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function settingsPage(){return{
+  settings:{}, integrations:{}, form:{}, revealed:{}, q:'', rawKey:'', rawVal:'',
+  gatewayModels:[], gatewayModelsState:'idle', gatewayModelsMsg:'',
+  saving:false, error:'', banner:'', bannerErr:false,
+  groups:[
+    {id:'core', title:'KI & Modell-Gateway (OmniRoute)', help:'Schnellstart: nur Gateway-Adresse auswählen/eintragen und API-Key speichern – alle Modell-/Auto-Kombo-Konfigurationen (auto/smart, omnicore-* inkl. Fotoshooting-Identitäten) sind bereits vorkonfiguriert. Alternativ kann der KI-Copilot die Verbindung über die Agenten-Funktion einrichten (mit Bestätigung).', fields:[
+      {key:'omniroute_url', label:'Gateway-Adresse (URL)', placeholder:'https://puchalla.online/v1', help:'Wähle lokal oder öffentlich oder trage eine eigene Adresse ein. Lokal: http://localhost:20128/v1 · Öffentlich: https://puchalla.online/v1', quickUrls:['https://puchalla.online/v1','http://localhost:20128/v1']},
+      {key:'omniroute_api_key', label:'Gateway-Zugangsschlüssel (API-Key)', secret:true, placeholder:'API-Key', help:'Einziger Pflichtwert – danach „Speichern“, der Rest ist vorbelegt.'},
+      {key:'omniroute_agent_model', label:'Copilot-/Agent-Modell (vorkonfiguriert)', placeholder:'omnicore-copilot', help:'Vorbelegt: omnicore-copilot (auto/smart).', modelList:true},
+      {key:'default_llm_model', label:'Standard-Sprachmodell (vorkonfiguriert)', placeholder:'auto/smart', help:'Vorbelegt: auto/smart.', modelList:true},
+      {key:'default_image_model', label:'Standard-Bild/Vision-Modell (vorkonfiguriert)', placeholder:'auto/vision', help:'Vorbelegt: auto/vision.', modelList:true},
+    ]},
+    {id:'ai_auto', title:'KI-Automatik & Einsatzprofile (vorkonfiguriert)', help:'Empfohlene Auto-Kombos pro Einsatz sind bereits gesetzt (auto/smart, auto/fast, auto/cheap, auto/coding, auto/vision, omnicore-*). Nur anpassen, wenn nötig.', fields:[
+      {key:'ai_model_copilot', label:'Copilot/Agent', placeholder:'omnicore-copilot', help:'Copilot, Steuerung, Tool-Planung.', modelList:true},
+      {key:'ai_model_content_quality', label:'Texte/SEO (Qualität)', placeholder:'omnicore-content-quality', help:'Produkt- & Marketingtexte in hoher Qualität.', modelList:true},
+      {key:'ai_model_content_bulk', label:'Texte/SEO (Masse/Budget)', placeholder:'omnicore-content-bulk', help:'Bulk-Content, Meta, Übersetzungen kostenoptimiert.', modelList:true},
+      {key:'ai_model_coding', label:'Code/Regeln/Mapping', placeholder:'auto/coding', help:'Struktur-, Mapping- und Logik-Aufgaben.', modelList:true},
+      {key:'ai_model_classification', label:'Klassifikation/Extraktion (schnell)', placeholder:'auto/fast', help:'Tagging, Extraktion, kurze Antworten.', modelList:true},
+      {key:'ai_model_trend', label:'Trend-/Marktanalyse', placeholder:'omnicore-trend-analysis', help:'Trends, Insights, Bundle-Vorschläge.', modelList:true},
+      {key:'ai_model_photoshoot', label:'Fotoshooting / Bildgenerierung', placeholder:'omnicore-photoshoot', help:'KI-Produktbilder (Vision/Image).', modelList:true},
+      {key:'ai_model_photoshoot_identity', label:'Fotoshooting mit Modell-Identität', placeholder:'omnicore-photoshoot-identity', help:'Fotos mit Modell-Profilen (z. B. Luna/Raven/Nyx), identitätstreu.', modelList:true},
+      {key:'ai_model_reliable', label:'Kritisch/hohe Zuverlässigkeit', placeholder:'omnicore-critical-fusion', help:'Wichtige Ausgaben (Fusion/Fallback).', modelList:true},
+      {key:'ai_model_budget', label:'Budget/Abo zuerst', placeholder:'omnicore-subscription-thrifty', help:'Erst Plan-/Abo-Quota, dann günstig.', modelList:true},
+      {key:'ai_fallback_chain', label:'Globale Fallback-Kette (JSON)', type:'textarea', placeholder:'["auto/smart","auto","auto/cheap"]', full:true, help:'Automatische Ausweichmodelle bei Fehler/Limit.'},
+      {key:'ai_default_strategy', label:'Standard-Routing-Strategie', placeholder:'lkgp', help:'z. B. lkgp, auto, cost, latency, sla-aware (vom Gateway unterstützt).'},
+      {key:'omniroute_combo_config_path', label:'Combo-Konfigurationsdatei (Server)', placeholder:'config/omniroute/omnicore-auto-combos.json', full:true, help:'Vordefinierte omnicore-auto-Kombos auf dem Middleware-Server.'},
+    ]},
+    {id:'matterhorn', title:'Lieferant / Produktimport (Matterhorn)', help:'Quelle für Produktdaten-Importe. Geben Sie eine echte, erreichbare Feed-Adresse an.', fields:[
+      {key:'matterhorn_feed_url', label:'Feed-Adresse (URL)', placeholder:'https://…/export.xml', full:true, help:'Öffentliche oder autorisierte Adresse des Lieferanten-Feeds.'},
+      {key:'matterhorn_api_token', label:'Zugriffstoken (falls erforderlich)', secret:true, placeholder:'Token', help:'Optionales geheimes Token für geschützte Feeds.'},
+      {key:'matterhorn_default_margin', label:'Standard-Aufschlag (%)', placeholder:'30', help:'Prozentualer Aufschlag, der bei Import/Kalkulation als Standard verwendet werden kann.'},
+    ]},
+    {id:'shopware', title:'Shopware-Shop', help:'Anbindung Ihres Shopware-Systems für Synchronisation und Export.', fields:[
+      {key:'shopware_url', label:'Shop-Adresse (URL)', placeholder:'https://shop.beispiel.de', help:'Basis-URL Ihres Shopware-Shops.'},
+      {key:'shopware_access_token', label:'Shopware-Zugangsschlüssel', secret:true, help:'API-Zugangsschlüssel aus Shopware (Integrationen).'},
+      {key:'shopware_sales_channel_id', label:'Vertriebskanal-ID', placeholder:'ID des Verkaufskanals', help:'Kennung des Sales Channels in Shopware.'},
+    ]},
+    {id:'market', title:'Marktplätze (Amazon & eBay)', help:'Nur mit autorisierten API-Zugängen nutzbar. Ohne gültige Berechtigungen findet keine Synchronisation statt.', fields:[
+      {key:'amazon_seller_id', label:'Amazon-Händler-ID', placeholder:'Seller-ID', help:'Ihre Amazon Seller-/Merchant-ID.'},
+      {key:'amazon_sp_api_refresh_token', label:'Amazon API-Token (Refresh)', secret:true, help:'Geheimer Token für die Amazon SP-API.'},
+      {key:'ebay_oauth_token', label:'eBay OAuth-Token', secret:true, help:'Geheimer Token für den eBay-Zugriff.'},
+      {key:'marketplace_sync_enabled', label:'Marktplatz-Synchronisation', type:'select', options:[{value:'true',label:'Aktiv'},{value:'false',label:'Inaktiv'}], help:'Steuert, ob konfigurierte Marktplätze synchronisiert werden.'},
+    ]},
+    {id:'crm', title:'Kommunikation (E-Mail & Messenger)', help:'Einstellungen für den einheitlichen Posteingang und Versand. Versand/Empfang nur bei korrekter Konfiguration.', fields:[
+      {key:'email_imap_host', label:'E-Mail-Empfang (IMAP-Server)', placeholder:'imap.beispiel.de', help:'Server zum Abrufen eingehender E-Mails.'},
+      {key:'email_username', label:'E-Mail-Benutzername', placeholder:'support@beispiel.de'},
+      {key:'email_password', label:'E-Mail-Passwort', secret:true},
+      {key:'smtp_host', label:'E-Mail-Versand (SMTP-Server)', placeholder:'smtp.beispiel.de', help:'Server zum Versenden von E-Mails.'},
+      {key:'smtp_user', label:'SMTP-Benutzername', placeholder:''},
+      {key:'smtp_password', label:'SMTP-Passwort', secret:true},
+      {key:'messenger_page_token', label:'Messenger-Seiten-Token', secret:true, help:'Geheimer Token für die Messenger-Anbindung.'},
+    ]},
+    {id:'ops', title:'Betrieb & Sicherheit', help:'Allgemeine Systemeinstellungen. Sicherheits- und Zahlungsregeln (z. B. Fulfillment-Sperre bei unbezahlten Bestellungen) können hier nicht umgangen werden.', fields:[
+      {key:'public_base_url', label:'Öffentliche Basis-URL', placeholder:'https://…', full:true, help:'Adresse, unter der dieses System erreichbar ist (für Links/Rückmeldungen).'},
+      {key:'log_level', label:'Protokollierungsstufe', type:'select', options:[{value:'INFO',label:'Normal (Info)'},{value:'WARNING',label:'Warnungen'},{value:'ERROR',label:'Nur Fehler'},{value:'DEBUG',label:'Detailliert (Debug)'}], help:'Bestimmt, wie ausführlich Systemereignisse protokolliert werden.'},
+      {key:'feature_scene_intelligence', label:'Szenen-Analyse (Scene Intelligence)', type:'select', options:[{value:'true',label:'Aktiv'},{value:'false',label:'Inaktiv'}], help:'Aktiviert Auswertung und Anzeige gespeicherter Szenen-Daten. Es werden keine externen Daten erfunden.'},
+    ]},
+  ],
+  normStatus(v){return typeof v==='string'?v:(v&&(v.status||v.state))||'unknown';},
+  async init(){await this.load(); this.loadGatewayModels();},
+  async load(){this.error=''; try{const [s,i]=await Promise.all([apiFetch('/api/settings'), apiFetch('/api/integrations/status')]); this.settings=s||{}; this.integrations=i||{}; this.seedForm();}catch(e){this.error=e.message;}},
+  mLabel(m){ if(!m) return ''; const id=m.id||m.model||m.name||''; const name=m.name && m.name!==id ? m.name : ''; const owner=m.owned_by||m.provider||''; return name ? `${id} — ${name}` : (owner ? `${id} (${owner})` : id); },
+  gatewayModelOptions(){ const suggested=[
+      {id:'auto', name:'Auto (automatische Modellauswahl, empfohlen)'},
+      {id:'smart', name:'Smart (intelligente Modellauswahl, empfohlen)'}
+    ]; const seen=new Set(suggested.map(x=>x.id));
+    const out=[...suggested];
+    for(const m of (this.gatewayModels||[])){ const id=(m&& (m.id||m.model||m.name))||''; if(!id||seen.has(id)) continue; seen.add(id); out.push(m); }
+    return out;
+  },
+  async loadGatewayModels(){ this.gatewayModelsState='loading'; this.gatewayModelsMsg=''; try{ const r=await apiFetch('/api/omniroute/gateway/models'); this.gatewayModels=Array.isArray(r.models)?r.models:[]; this.gatewayModelsState=r.status||'ok'; this.gatewayModelsMsg=r.error||''; }catch(e){ this.gatewayModelsState='error'; this.gatewayModelsMsg=e.message||'Fehler'; this.gatewayModels=[]; } },
+  defaults(){
+    const d={omniroute_agent_model:'omnicore-copilot',default_llm_model:'auto/smart',default_image_model:'auto/vision',ai_model_copilot:'omnicore-copilot',ai_model_chat:'auto/smart',ai_model_coding:'auto/coding',ai_model_content_bulk:'omnicore-content-bulk',ai_model_content_quality:'omnicore-content-quality',ai_model_seo:'auto/cheap',ai_model_translation:'auto/cheap',ai_model_classification:'auto/fast',ai_model_trend:'omnicore-trend-analysis',ai_model_longcontext:'omnicore-longcontext',ai_model_vision:'auto/vision',ai_model_image:'auto/vision',ai_model_photoshoot:'omnicore-photoshoot',ai_model_photoshoot_identity:'omnicore-photoshoot-identity',ai_model_reliable:'omnicore-critical-fusion',ai_model_budget:'omnicore-subscription-thrifty',ai_model_cache:'omnicore-cache-optimized',ai_fallback_chain:'["auto/smart","auto","auto/cheap"]',ai_default_strategy:'lkgp',omniroute_combo_config_path:'config/omniroute/omnicore-auto-combos.json'};
+    return d;
+  },
+  seedForm(){ const d=this.defaults(); for(const g of this.groups){ for(const f of g.fields){ const v=this.settings[f.key]; if(v && v!=='********'){ this.form[f.key]=v; } else if(!f.secret && d[f.key]!==undefined && (v===undefined||v===null||v==='')){ this.form[f.key]=d[f.key]; } else { this.form[f.key]=(v && v!=='********')?v:''; } } } },
+  displayValue(k){ const v=this.settings[k]; if(v===undefined||v===null||v==='') return '— nicht gesetzt —'; if(v==='********') return '•••••• (gesetzt)'; return v; },
+  groupStatus(g){ const required=g.fields.filter(f=>!f.optional); const known=required.map(f=>this.settings[f.key]).filter(v=>v && v!==''); if(known.length===0) return {label:'Nicht eingerichtet',cls:'badge-slate'}; if(known.length<required.length) return {label:'Teilweise eingerichtet',cls:'badge-amber'}; return {label:'Eingerichtet',cls:'badge-green'}; },
+  async saveGroup(group){ this.saving=true; this.banner=''; this.bannerErr=false; try{ let n=0; for(const f of group.fields){ const val=this.form[f.key]; if(val===undefined) continue; if(f.secret && (val==='' || val===null)) continue; await apiFetch('/api/settings',{method:'POST',body:JSON.stringify({key:f.key,value:String(val)})}); n++; } this.banner='Einstellungen für „'+group.title+'“ gespeichert ('+n+' Werte).'; toast(this.banner,'success'); await this.load(); }catch(e){ this.bannerErr=true; this.banner='Speichern nicht möglich: '+e.message; } this.saving=false; },
+  async saveRaw(){ if(!this.rawKey){this.bannerErr=true; this.banner='Bitte geben Sie einen Schlüssel an.'; return;} this.saving=true; try{ await apiFetch('/api/settings',{method:'POST',body:JSON.stringify({key:this.rawKey,value:this.rawVal})}); this.bannerErr=false; this.banner='Wert wurde gespeichert.'; toast(this.banner,'success'); this.rawKey=''; this.rawVal=''; await this.load(); }catch(e){ this.bannerErr=true; this.banner='Speichern nicht möglich: '+e.message; } this.saving=false; },
+}}
+</script>
+{% endblock %}

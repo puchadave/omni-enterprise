@@ -1,0 +1,10 @@
+# Kopiere nach docker-compose.override.yml für lokale/Node-spezifische Anpassungen.
+# Diese Datei wird von `docker compose` automatisch gemerged.
+services:
+  omni-core:
+    # environment:
+    #   - SOME_EXTRA_FLAG=1
+    # volumes:
+    #   - ./hooks.d:/app/hooks.d:ro
+    ports:
+      - "${OMNI_CORE_PORT:-8002}:8000"

@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Security & User Management | Omni-Core{% endblock %}
+{% block content %}
+<div x-data="iamPage()" x-init="init()" class="space-y-5 max-w-7xl mx-auto">
+  <div class="flex justify-between items-end gap-3"><div><h1 class="text-2xl font-bold">Security & User Management (IAM/RBAC)</h1><p class="text-slate-400">Zentrale Identity-Schicht: Benutzer, Rollen/Berechtigungen, Sessions & Sicherheitsstatus (inkrementell, serverseitig durchsetzbar). Keine öffentliche Registrierung.</p></div><button @click="load()" class="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded text-sm">Aktualisieren</button></div>
+
+  <div class="grid md:grid-cols-4 gap-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-lg p-4"><div class="text-xs text-slate-400 uppercase">Benutzer</div><div class="mt-1 text-2xl font-bold" x-text="users.length"></div></div>
+    <div class="bg-slate-900 border border-slate-800 rounded-lg p-4"><div class="text-xs text-slate-400 uppercase">Rollen</div><div class="mt-1 text-2xl font-bold" x-text="roles.length"></div></div>
+    <div class="bg-slate-900 border border-slate-800 rounded-lg p-4"><div class="text-xs text-slate-400 uppercase">MFA</div><div class="mt-1 text-sm text-slate-300">TOTP/WebAuthn (Stufe 2/3) – konfigurierbar</div></div>
+    <div class="bg-slate-900 border border-slate-800 rounded-lg p-4"><div class="text-xs text-slate-400 uppercase">eID/BundID</div><div class="mt-1 text-sm text-amber-400">Provider-Abstraktion; Aktivierung nur mit verifiziertem Zugang/Zertifikat</div></div>
+  </div>
+
+  <div class="grid lg:grid-cols-2 gap-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-lg p-4 space-y-3">
+      <h2 class="font-semibold">Benutzer anlegen (Admin-only, kein Self-Register)</h2>
+      <input x-model="userForm.email" placeholder="E-Mail" class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm">
+      <input x-model="userForm.display_name" placeholder="Anzeigename" class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm">
+      <input x-model="userForm.password" type="password" placeholder="Initialpasswort (sicher vergeben)" class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm">
+      <select x-model="userForm.role" class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm"><option>VIEWER</option><option>ANALYST</option><option>EDITOR</option><option>MANAGER</option><option>ADMIN</option><option>SUPERADMIN</option></select>
+      <button @click="createUser()" class="bg-indigo-600 hover:bg-indigo-500 px-4 py-2 rounded text-sm">Benutzer erstellen</button>
+      <div x-show="msg" class="text-sm" :class="err?'text-red-300':'text-emerald-300'" x-text="msg"></div>
+      <p class="text-xs text-slate-500">Passwörter serverseitig gehasht (PBKDF2-SHA256, upgradefähig auf Argon2id). Letzter aktiver SUPERADMIN darf nicht entfernt werden (Policy).</p>
+    </div>
+    <div class="bg-slate-900 border border-slate-800 rounded-lg p-4">
+      <h2 class="font-semibold mb-2">Benutzerliste</h2>
+      <div class="overflow-auto max-h-96 border border-slate-800 rounded"><table class="w-full text-xs"><thead class="text-slate-400"><tr><th class="p-2 text-left">E-Mail</th><th class="p-2 text-left">Name</th><th class="p-2 text-left">Aktiv</th><th class="p-2 text-left">Superadmin</th><th class="p-2 text-left">Erstellt</th></tr></thead><tbody>
+        <template x-for="u in users" :key="u.id||u.email"><tr class="border-t border-slate-800"><td class="p-2" x-text="u.email"></td><td class="p-2" x-text="u.display_name||u.username||'—'"></td><td class="p-2" x-text="u.is_active"></td><td class="p-2" x-text="u.is_superadmin"></td><td class="p-2 text-slate-400" x-text="u.created_at||''"></td></tr></template>
+        <tr x-show="users.length===0"><td colspan="5" class="p-3 text-slate-400">Keine IAM-Benutzer in DB (bestehende Session-Auth/API-Key kann weiterhin aktiv sein). Bootstrap über API möglich.</td></tr>
+      </tbody></table></div>
+    </div>
+  </div>
+
+  <div class="grid lg:grid-cols-2 gap-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-lg p-4"><h2 class="font-semibold mb-2">Rollen & Berechtigungen (RBAC)</h2><pre class="text-xs bg-slate-950 border border-slate-800 rounded p-3 overflow-auto max-h-80" x-text="JSON.stringify({roles:roles,permissions:permissions},null,2)"></pre></div>
+    <div class="bg-slate-900 border border-slate-800 rounded-lg p-4 space-y-2"><h2 class="font-semibold">Identity Provider (eID / AusweisApp / BundID)</h2>
+      <ul class="text-sm text-slate-300 list-disc ml-5 space-y-1">
+        <li><b>eID (Personalausweis, NFC/PIN via AusweisApp):</b> nur über verifizierten eID-Server/Dienst gemäß BSI-Vorgaben; Transaktions-/State/Nonce-Validierung, kein PIN/CAN/Chipdaten-Speicher.</li>
+        <li><b>BundID:</b> separater Adapter, Aktivierung erst nach offizieller Machbarkeits-/Zugangsprüfung (kein fiktiver OAuth-Flow, keine Simulation).</li>
+        <li><b>Account-Linking:</b> explizite Besitzverifikation, keine automatische Verknüpfung nur per E-Mail; Kunden- vs. Mitarbeiter-Domäne getrennt.</li>
+        <li><b>Stufen:</b> L1 Passwort, L2 Passwort+MFA, L3 staatliche eID (Step-up für kritische Aktionen).</li>
+      </ul>
+      <div class="text-xs text-amber-400">Status: Provider-Interfaces/DB vorbereitet; produktive Aktivierung BLOCKED bis Zertifikate, eID-Server/Provider-Zugang und rechtliche Freigabe vorliegen.</div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function iamPage(){return{users:[],roles:[],permissions:[],msg:'',err:false,userForm:{email:'',display_name:'',password:'',role:'VIEWER'},async init(){await this.load();},async load(){try{const d=await apiFetch('/api/iam/users'); this.users=d.users||d||[]; this.roles=d.roles||[]; this.permissions=d.permissions||[];}catch(e){this.users=[];} try{if(!this.roles.length){this.roles=await apiFetch('/api/iam/roles');}}catch(e){} try{if(!this.permissions.length){this.permissions=await apiFetch('/api/iam/permissions');}}catch(e){}},async createUser(){this.msg='';this.err=false; try{await apiFetch('/api/iam/users',{method:'POST',body:JSON.stringify(this.userForm)}); this.msg='Benutzer erstellt.'; this.userForm.password=''; await this.load();}catch(e){this.err=true; this.msg='Fehler: '+e.message;}}}}
+</script>
+{% endblock %}

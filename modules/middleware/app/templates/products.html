@@ -1,0 +1,302 @@
+{% extends "base.html" %}
+{% block title %}Produktkatalog | OMNI-CORE{% endblock %}
+{% block content %}
+<div x-data="productsPage()" x-init="init()" class="space-y-4 max-w-7xl mx-auto">
+  <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
+    <div>
+      <h1 class="text-2xl md:text-3xl font-bold">Produktkatalog</h1>
+      <p class="text-slate-400">Importierte Produkte mit Foto, Preisen, Bestand & Varianten durchsuchen und bearbeiten.</p>
+    </div>
+    <div class="flex gap-2">
+      <a href="/ui/matterhorn-import" class="btn btn-secondary">Import-Assistent</a>
+      <button @click="openCreate()" class="btn btn-primary">+ Neues Produkt</button>
+    </div>
+  </div>
+
+  <div class="card p-4 space-y-3">
+    <div class="grid md:grid-cols-12 gap-3 items-end">
+      <div class="md:col-span-5">
+        <label class="label">Suche (Titel, SKU, Marke, Kategorie, EAN, Beschreibung, Varianten)</label>
+        <div class="flex gap-2">
+          <input x-model="q" @keydown.enter.prevent="searchNow()" class="input" placeholder="z. B. Róża, BH, 231033, EAN …">
+          <button class="btn btn-primary" @click="searchNow()">Suchen</button>
+        </div>
+      </div>
+      <div class="md:col-span-2"><label class="label">Status</label><select x-model="status" @change="searchNow()" class="select"><option value="">Alle</option><option value="active">Aktiv</option><option value="draft">Entwurf</option><option value="paused">Pausiert</option><option value="archived">Archiviert</option></select></div>
+      <div class="md:col-span-2"><label class="label">Kategorie</label>
+        <select x-model="category" @change="searchNow()" class="select">
+          <option value="">Alle Kategorien</option>
+          <template x-for="c in categories" :key="c.id||c.name||c.path||c"><option :value="(c.name||c.path||c)" x-text="(c.path||c.name||c)"></option></template>
+        </select>
+      </div>
+      <div class="md:col-span-2"><label class="label">Marke</label><input x-model="brand" @keydown.enter.prevent="searchNow()" class="input" placeholder="enthält…"></div>
+      <div class="md:col-span-1 flex items-center gap-2 pb-2">
+        <label class="flex items-center gap-2 text-sm"><input type="checkbox" x-model="onlyImage" @change="searchNow()" class="rounded"> Foto</label>
+      </div>
+    </div>
+    <div class="flex flex-wrap gap-3 text-sm items-center">
+      <label class="flex items-center gap-2"><input type="checkbox" x-model="inStock" @change="searchNow()" class="rounded"> Nur mit Bestand</label>
+      <div class="flex items-center gap-2"><span class="text-slate-400">Ansicht:</span>
+        <button class="px-2 py-1 rounded" :class="view==='grid'?'bg-slate-700 text-white':'text-slate-400 hover:text-white'" @click="view='grid'">Katalog</button>
+        <button class="px-2 py-1 rounded" :class="view==='list'?'bg-slate-700 text-white':'text-slate-400 hover:text-white'" @click="view='list'">Liste</button>
+      </div>
+      <button class="text-indigo-400 hover:underline ml-auto" @click="resetFilters()">Filter zurücksetzen</button>
+    </div>
+  </div>
+
+  <template x-if="error"><div class="banner banner-error"><div class="font-medium">Produkte konnten nicht geladen werden</div><div class="text-sm mt-1" x-text="error"></div><button class="btn btn-secondary !py-1.5 mt-2" @click="load(true)">Erneut versuchen</button></div></template>
+
+  <div class="card overflow-hidden">
+    <div class="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b border-slate-800">
+      <div class="text-sm text-slate-400"><span x-text="total !== null ? total : items.length"></span> Produkte gefunden <template x-if="q || status || category || brand || onlyImage || inStock"><span>(gefiltert)</span></template></div>
+      <div class="flex items-center gap-2"><button @click="load(true)" class="text-sm text-indigo-400 hover:underline">Aktualisieren</button></div>
+    </div>
+
+    <div x-show="loading && items.length===0" class="p-4 grid grid-cols-2 md:grid-cols-4 gap-3"><template x-for="i in 8" :key="i"><div class="skeleton h-56 w-full"></div></template></div>
+
+    <div x-show="!loading || items.length>0">
+      <!-- Grid/Catalog view -->
+      <div x-show="view==='grid'" class="p-4">
+        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4" x-show="items.length>0">
+          <template x-for="p in items" :key="p.sku">
+            <div class="group border border-slate-800 rounded-xl overflow-hidden bg-slate-900/40 hover:border-slate-600 hover:bg-slate-900/70 transition cursor-pointer flex flex-col" @click="openEdit(p)">
+              <div class="aspect-[4/5] bg-slate-950 relative overflow-hidden">
+                <template x-if="imgOf(p)"><img :src="imgOf(p)" loading="lazy" referrerpolicy="no-referrer" class="w-full h-full object-cover group-hover:scale-[1.02] transition" @error="$el.style.display='none'; $el.parentElement.querySelector('[data-ph]') && ($el.parentElement.querySelector('[data-ph]').style.display='flex')"></template>
+                <div data-ph :style="imgOf(p)?'display:none':''" class="w-full h-full flex items-center justify-center text-slate-600 text-4xl">🖼️</div>
+                <div class="absolute top-2 left-2 flex flex-col gap-1">
+                  <span class="badge" :class="uiBadgeClass(p.status)" x-text="uiStatusLabel(p.status)"></span>
+                  <span class="badge badge-amber" x-show="(p.variant_count ?? (p.variants||[]).length) > 0" x-text="(p.variant_count ?? (p.variants||[]).length)+' Var.'"></span>
+                </div>
+              </div>
+              <div class="p-3 space-y-1 flex-1 flex flex-col">
+                <div class="flex flex-wrap items-center gap-1 mb-0.5"><span class="text-[11px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-200 truncate max-w-full" x-show="p.category" x-text="p.category"></span><span class="text-[11px] text-slate-400 truncate" x-show="!p.category">Ohne Kategorie</span><span class="text-[11px] text-slate-500 truncate" x-show="p.brand" x-text="p.brand"></span></div>
+                <div class="font-medium text-sm leading-snug line-clamp-2" x-text="p.ai_title||p.title||'Ohne Titel'"></div>
+                <div class="text-xs text-slate-500 font-mono" x-text="'SKU: '+p.sku"></div>
+                <div class="mt-auto pt-2 flex items-end justify-between gap-2">
+                  <div>
+                    <div class="text-sm font-semibold text-emerald-400" x-text="fmtMoney(p.sale_price || p.supplier_price || p.purchase_price)"></div>
+                    <div class="text-[11px] text-slate-500" x-text="'EK '+fmtMoney(p.supplier_price||p.purchase_price)"></div>
+                  </div>
+                  <div class="text-right">
+                    <div class="text-xs" :class="Number(p.stock_quantity ?? p.stock ?? 0)>0?'text-emerald-400':'text-amber-400'" x-text="(p.stock_quantity ?? p.stock ?? 0)+' Stk.'"></div>
+                    <div class="text-[11px] text-slate-500" x-text="'EAN '+(p.ean||p.barcode||'—')"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- List view -->
+      <div x-show="view==='list'" class="table-wrap">
+        <table class="tbl" x-show="items.length>0">
+          <thead><tr><th>Foto</th><th>Produkt</th><th>Kategorie/Marke</th><th>Preis</th><th>Bestand</th><th>Varianten</th><th>Status</th><th>Aktionen</th></tr></thead>
+          <tbody>
+            <template x-for="p in items" :key="p.sku">
+              <tr class="hover:bg-slate-800/40 cursor-pointer" @click="openEdit(p)">
+                <td class="w-16"><div class="w-12 h-14 rounded bg-slate-950 overflow-hidden flex items-center justify-center"><template x-if="imgOf(p)"><img :src="imgOf(p)" loading="lazy" referrerpolicy="no-referrer" class="w-full h-full object-cover"></template><template x-if="!imgOf(p)"><span class="text-slate-600">🖼️</span></template></div></td>
+                <td><div class="font-medium" x-text="p.ai_title||p.title||'Ohne Titel'"></div><div class="text-xs text-slate-500 font-mono">SKU: <span x-text="p.sku"></span> · EAN: <span x-text="p.ean||p.barcode||'—'"></span></div></td>
+                <td><div x-text="p.category||'—'"></div><div class="text-xs text-slate-500" x-text="p.brand||''"></div></td>
+                <td><div x-text="fmtMoney(p.sale_price||p.supplier_price)"></div><div class="text-xs text-slate-500" x-text="'EK '+fmtMoney(p.supplier_price||p.purchase_price)"></div></td>
+                <td><span class="badge" :class="Number(p.stock_quantity ?? p.stock ?? 0)>0?'badge-green':'badge-amber'" x-text="(p.stock_quantity ?? p.stock ?? 0)+' / verf. '+(p.available_quantity ?? ((p.stock_quantity??p.stock??0)-(p.reserved_quantity??0)))"></span></td>
+                <td class="text-xs text-slate-400"><span x-text="(p.variant_count ?? (p.variants||[]).length)"></span> Var. · <span x-text="(p.attribute_count ?? (p.attributes||[]).length)"></span> Attr.</td>
+                <td><span class="badge" :class="uiBadgeClass(p.status)" x-text="uiStatusLabel(p.status)"></span></td>
+                <td class="whitespace-nowrap"><button class="text-indigo-400 hover:text-indigo-300 mr-3" @click.stop="openEdit(p)">Bearbeiten</button><button class="text-red-400 hover:text-red-300" @click.stop="remove(p)">Löschen</button></td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+
+      <template x-if="!loading && items.length===0"><div x-html="emptyHtml()"></div></template>
+
+      <div class="p-4 border-t border-slate-800 flex items-center justify-between" x-show="items.length>0">
+        <div class="text-sm text-slate-400">Angezeigt: <span x-text="items.length"></span><template x-if="total!==null"> von <span x-text="total"></span></template></div>
+        <div class="flex gap-2">
+          <button class="btn btn-secondary !py-1.5" @click="loadMore()" x-show="hasMore()" :disabled="loading"><span x-show="!loading">Mehr laden</span><span x-show="loading">Lädt…</span></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Editor Drawer -->
+  <div x-show="drawer" x-cloak class="fixed inset-0 z-50">
+    <div class="absolute inset-0 bg-black/60" @click="closeDrawer()"></div>
+    <div class="absolute right-0 top-0 h-full w-full max-w-5xl bg-slate-950 border-l border-slate-800 shadow-2xl flex flex-col" @keydown.escape.window="if(drawer) closeDrawer()">
+      <div class="p-4 border-b border-slate-800 flex items-center justify-between gap-3"><div class="flex items-center gap-3 min-w-0"><div class="w-12 h-14 rounded bg-slate-900 overflow-hidden flex items-center justify-center shrink-0"><template x-if="imgOf(form)"><img :src="imgOf(form)" class="w-full h-full object-cover"></template><template x-if="!imgOf(form)"><span class="text-slate-600">🖼️</span></template></div><div class="min-w-0"><div class="text-sm text-slate-400" x-text="formMode==='create'?'Neues Produkt':'Produkt bearbeiten'"></div><div class="font-semibold text-lg truncate" x-text="form.title||form.sku||'Produkt'"></div></div></div><div class="flex gap-2"><button class="btn btn-ghost !py-1.5" @click="closeDrawer()">Schließen</button><button @click="save()" class="btn btn-primary" :disabled="saving"><span x-show="!saving">Speichern</span><span x-show="saving">Speichert…</span></button></div></div>
+      <div class="px-4 pt-3 border-b border-slate-800 flex flex-wrap gap-2 text-sm">
+        <template x-for="t in tabs" :key="t.id"><button class="px-3 py-2 rounded-t border-b-2" :class="tab===t.id?'border-indigo-400 text-white':'border-transparent text-slate-400 hover:text-slate-200'" @click="tab=t.id" x-text="t.label"></button></template>
+      </div>
+      <div class="flex-1 overflow-y-auto p-4 space-y-4">
+        <div x-show="tab==='general'" class="space-y-3">
+          <div class="grid md:grid-cols-3 gap-3">
+            <div><label class="label">SKU *</label><input x-model="form.sku" :disabled="formMode==='edit'" class="input font-mono"></div>
+            <div><label class="label">Externe Matterhorn-ID</label><input x-model="form.external_matterhorn_id" class="input font-mono"></div>
+            <div><label class="label">Status</label><select x-model="form.status" class="select"><option value="active">Aktiv</option><option value="draft">Entwurf</option><option value="paused">Pausiert</option><option value="archived">Archiviert</option></select></div>
+            <div class="md:col-span-2"><label class="label">Titel *</label><input x-model="form.title" class="input"></div>
+            <div><label class="label">Marke</label><input x-model="form.brand" class="input"></div>
+            <div><label class="label">Hersteller</label><input x-model="form.manufacturer" class="input"></div>
+            <div><label class="label">Hauptkategorie (Text)</label><input x-model="form.category" class="input"></div>
+            <div><label class="label">Slug</label><input x-model="form.slug" class="input"></div>
+            <div class="md:col-span-3"><label class="label">Kurzbeschreibung</label><textarea x-model="form.short_description" rows="2" class="textarea"></textarea></div>
+            <div class="md:col-span-3"><label class="label">Beschreibung</label><textarea x-model="form.raw_description" rows="5" class="textarea"></textarea></div>
+            <div class="md:col-span-2"><label class="label">SEO Titel</label><input x-model="form.seo_title" class="input"></div>
+            <div><label class="label">Canonical URL</label><input x-model="form.canonical_url" class="input"></div>
+            <div class="md:col-span-3"><label class="label">Meta Description</label><textarea x-model="form.meta_description" rows="2" class="textarea"></textarea></div>
+          </div>
+        </div>
+
+        <div x-show="tab==='categories'" class="space-y-4">
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="space-y-2">
+              <label class="label">Kategorien (eine pro Zeile, Pfad mit / möglich)</label>
+              <textarea x-model="categoriesText" rows="10" class="textarea font-mono text-xs"></textarea>
+            </div>
+            <div class="space-y-3">
+              <label class="label">Dynamische Attribute / Eigenschaften</label>
+              <div class="space-y-2 max-h-80 overflow-auto pr-1">
+                <template x-for="(a,idx) in form.attributes" :key="idx">
+                  <div class="grid grid-cols-12 gap-2 items-center">
+                    <input class="input col-span-4" placeholder="Name" x-model="a.name">
+                    <input class="input col-span-5" placeholder="Wert" x-model="a.value">
+                    <label class="col-span-2 text-xs flex items-center gap-1"><input type="checkbox" x-model="a.is_filterable"> Filter</label>
+                    <button class="col-span-1 text-red-400" @click="form.attributes.splice(idx,1)">✕</button>
+                  </div>
+                </template>
+              </div>
+              <button class="btn btn-secondary !py-1.5" @click="form.attributes.push({name:'',value:'',is_filterable:true})">+ Attribut</button>
+            </div>
+          </div>
+        </div>
+
+        <div x-show="tab==='variants'" class="space-y-4">
+          <div class="space-y-3">
+            <div class="flex items-center justify-between"><label class="label mb-0">Varianten</label><button class="btn btn-secondary !py-1.5" @click="addVariant()">+ Variante</button></div>
+            <div class="space-y-3">
+              <template x-for="(v,idx) in form.variants" :key="idx">
+                <div class="border border-slate-800 rounded-lg p-3 bg-slate-900/30">
+                  <div class="flex justify-between mb-2"><div class="text-sm font-medium">Variante <span x-text="idx+1"></span></div><button class="text-red-400 text-sm" @click="form.variants.splice(idx,1)">Entfernen</button></div>
+                  <div class="grid md:grid-cols-4 gap-2">
+                    <div><label class="label">SKU</label><input class="input font-mono" x-model="v.sku"></div>
+                    <div><label class="label">Titel</label><input class="input" x-model="v.title"></div>
+                    <div><label class="label">EAN/Barcode</label><input class="input font-mono" x-model="v.ean"></div>
+                    <div><label class="label">Bestand</label><input type="number" class="input" x-model.number="v.stock_quantity"></div>
+                    <div><label class="label">EK</label><input type="number" step="0.01" class="input" x-model.number="v.supplier_price"></div>
+                    <div><label class="label">VK</label><input type="number" step="0.01" class="input" x-model.number="v.sale_price"></div>
+                    <div class="md:col-span-2"><label class="label">Attribute (JSON)</label><input class="input font-mono text-xs" x-model="v._attrsText" @change="parseVariantAttrs(v)" placeholder='{"size":"M","color":"Blau"}'></div>
+                  </div>
+                </div>
+              </template>
+              <template x-if="!form.variants || form.variants.length===0"><div class="text-sm text-slate-400">Keine Varianten hinterlegt.</div></template>
+            </div>
+          </div>
+          <div class="space-y-2">
+            <label class="label">Medien / Galerie (eine URL pro Zeile; erste = Hauptbild)</label>
+            <textarea x-model="mediaText" rows="6" class="textarea font-mono text-xs"></textarea>
+            <div class="grid grid-cols-3 md:grid-cols-6 gap-2" x-show="(mediaText||'').trim()">
+              <template x-for="(u,i) in mediaText.split('\n').map(s=>s.trim()).filter(Boolean).slice(0,12)" :key="i"><div class="aspect-square rounded bg-slate-900 overflow-hidden border border-slate-800"><img :src="u" loading="lazy" class="w-full h-full object-cover"></div></template>
+            </div>
+            <div class="grid md:grid-cols-2 gap-3">
+              <div><label class="label">Hauptbild-URL</label><input x-model="form.main_image_url" class="input"></div>
+              <div><label class="label">Videos/Dokumente (JSON-Array)</label><input class="input font-mono text-xs" x-model="mediaExtrasText"></div>
+            </div>
+          </div>
+        </div>
+
+        <div x-show="tab==='pricing'" class="space-y-3">
+          <div class="grid md:grid-cols-3 gap-3">
+            <div><label class="label">Einkaufspreis / EK</label><input type="number" step="0.01" class="input" x-model.number="form.supplier_price"></div>
+            <div><label class="label">Purchase Price</label><input type="number" step="0.01" class="input" x-model.number="form.purchase_price"></div>
+            <div><label class="label">Verkaufspreis</label><input type="number" step="0.01" class="input" x-model.number="form.sale_price"></div>
+            <div><label class="label">Streichpreis / UVP</label><input type="number" step="0.01" class="input" x-model.number="form.compare_at_price"></div>
+            <div><label class="label">Steuersatz (%)</label><input type="number" step="0.01" class="input" x-model.number="form.tax_rate"></div>
+            <div><label class="label">Währung</label><input class="input" x-model="form.currency"></div>
+          </div>
+        </div>
+
+        <div x-show="tab==='logistics'" class="space-y-3">
+          <div class="grid md:grid-cols-3 gap-3">
+            <div><label class="label">Bestand (gesamt)</label><input type="number" class="input" x-model.number="form.stock"></div>
+            <div><label class="label">Lagerbestand (stock_quantity)</label><input type="number" class="input" x-model.number="form.stock_quantity"></div>
+            <div><label class="label">Reserviert</label><input type="number" class="input" x-model.number="form.reserved_quantity"></div>
+            <div><label class="label">Verfügbar</label><input type="number" class="input" x-model.number="form.available_quantity"></div>
+            <div><label class="label">Meldebestand</label><input type="number" class="input" x-model.number="form.reorder_level"></div>
+            <div><label class="label">Lieferzeit (Tage)</label><input type="number" class="input" x-model.number="form.lead_time_days"></div>
+            <div><label class="label">Lieferantenbestand</label><input type="number" class="input" x-model.number="form.supplier_stock"></div>
+            <div><label class="label">Lagerort</label><input class="input" x-model="form.warehouse_location"></div>
+            <div><label class="label">Lagerplatz/Bin</label><input class="input" x-model="form.bin_code"></div>
+            <div><label class="label">EAN</label><input class="input font-mono" x-model="form.ean"></div>
+            <div><label class="label">Barcode</label><input class="input font-mono" x-model="form.barcode"></div>
+            <div><label class="label">HS-Code (Zoll)</label><input class="input font-mono" x-model="form.hs_code"></div>
+            <div><label class="label">Herkunftsland</label><input class="input" x-model="form.country_of_origin"></div>
+            <div><label class="label">Gewicht netto (kg)</label><input type="number" step="0.001" class="input" x-model.number="form.weight_net_kg"></div>
+            <div><label class="label">Gewicht brutto (kg)</label><input type="number" step="0.001" class="input" x-model.number="form.weight_gross_kg"></div>
+            <div><label class="label">Länge (cm)</label><input type="number" step="0.01" class="input" x-model.number="form.length_cm"></div>
+            <div><label class="label">Breite (cm)</label><input type="number" step="0.01" class="input" x-model.number="form.width_cm"></div>
+            <div><label class="label">Höhe (cm)</label><input type="number" step="0.01" class="input" x-model.number="form.height_cm"></div>
+          </div>
+          <div class="flex flex-wrap gap-4 text-sm">
+            <label class="flex items-center gap-2"><input type="checkbox" x-model="form.requires_serial_number"> Seriennummer erforderlich</label>
+            <label class="flex items-center gap-2"><input type="checkbox" x-model="form.is_fragile"> Zerbrechlich</label>
+            <label class="flex items-center gap-2"><input type="checkbox" x-model="form.is_hazmat"> Gefahrgut</label>
+          </div>
+        </div>
+      </div>
+      <div class="p-4 border-t border-slate-800 flex justify-end gap-2">
+        <button @click="closeDrawer()" class="btn btn-secondary">Abbrechen</button>
+        <button @click="save()" class="btn btn-primary" :disabled="saving"><span x-show="!saving">Speichern</span><span x-show="saving">Wird gespeichert…</span></button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function productsPage(){
+  const empty=()=>({sku:'',external_matterhorn_id:'',parent_sku:'',title:'',brand:'',manufacturer:'',category:'',short_description:'',raw_description:'',seo_title:'',meta_description:'',slug:'',canonical_url:'',supplier_price:0,purchase_price:0,sale_price:0,compare_at_price:0,tax_rate:0,currency:'EUR',stock:0,stock_quantity:0,reserved_quantity:0,available_quantity:0,reorder_level:0,lead_time_days:0,supplier_stock:0,warehouse_location:'',bin_code:'',ean:'',barcode:'',requires_serial_number:false,is_fragile:false,is_hazmat:false,weight_net_kg:0,weight_gross_kg:0,length_cm:0,width_cm:0,height_cm:0,hs_code:'',country_of_origin:'',main_image_url:'',gallery_json:[],videos_json:[],documents_json:[],marketplace_mappings_json:{},variants:[],attributes:[],categories:[],status:'active'});
+  return {
+    items:[], total:null, q:'', status:'', category:'', brand:'', onlyImage:false, inStock:false, view:'grid',
+    loading:false, error:'', offset:0, pageSize:60,
+    drawer:false, saving:false, formMode:'create', form:empty(),
+    tab:'general', tabs:[{id:'general',label:'Allgemein & Texte'},{id:'categories',label:'Kategorien & Attribute'},{id:'variants',label:'Varianten & Medien'},{id:'pricing',label:'Preise & Steuern'},{id:'logistics',label:'Lagerlogistik & Zoll'}],
+    categoriesText:'', mediaText:'', mediaExtrasText:'{"videos":[],"documents":[]}',
+    init(){ this.loadCategories(); this.load(true); },
+    async loadCategories(){ try{ const r=await apiFetch('/api/categories?limit=500'); this.categories = Array.isArray(r)?r:(r.items||[]); }catch(_){ this.categories=[]; } },
+    imgOf(p){ if(!p) return ''; let u=p.main_image_url; if(!u && Array.isArray(p.gallery_json) && p.gallery_json.length){ const g=p.gallery_json[0]; u=(typeof g==='string')?g:(g&& (g.url||g.src||g.image_url)); } if(!u && Array.isArray(p.media) && p.media.length){ const m=p.media[0]; u=(typeof m==='string')?m:(m&&(m.url||m.image_url||m.src)); } if(u==null) return ''; u=String(u).trim(); if(!u || u.toLowerCase()==='none' || u.toLowerCase()==='null') return ''; return u; },
+    fmtMoney(v){ if(v==null||v==='') return '—'; const n=Number(v); return isNaN(n)?String(v):n.toFixed(2)+' €'; },
+    buildUrl(reset){ const off = reset?0:this.offset; const params=new URLSearchParams({limit:String(this.pageSize), offset:String(off), include_total:'true'}); if(this.q) params.set('q', this.q); if(this.status) params.set('status', this.status); if(this.category) params.set('category', this.category); if(this.brand) params.set('brand', this.brand); if(this.onlyImage) params.set('has_image','true'); if(this.inStock) params.set('in_stock','true'); return '/api/products?'+params.toString(); },
+    async load(reset){ this.loading=true; this.error=''; try{ if(reset){ this.offset=0; this.items=[]; } const d=await apiFetch(this.buildUrl(reset)); const arr=Array.isArray(d)?d:(d.items||[]); this.total = (d && !Array.isArray(d) && d.total!=null) ? Number(d.total) : (reset?arr.length:this.total); if(reset) this.items=arr; else this.items=this.items.concat(arr); this.offset = (reset?0:this.offset) + arr.length; }catch(e){ this.error=e.message; if(reset){ this.items=[]; this.total=null; } } this.loading=false; },
+    searchNow(){ this.load(true); },
+    loadMore(){ if(this.hasMore()) this.load(false); },
+    hasMore(){ if(this.total==null) return this.items.length>0 && (this.items.length % this.pageSize===0); return this.items.length < this.total; },
+    resetFilters(){ this.q=''; this.status=''; this.category=''; this.brand=''; this.onlyImage=false; this.inStock=false; this.load(true); },
+    emptyHtml(){ if(!this.q && !this.status && !this.category && !this.brand && !this.onlyImage && !this.inStock) return renderEmptyState({icon:'🛍️', title:'Noch keine Produkte im Katalog', text:'Importieren Sie Produkte über den Matterhorn-Import, damit sie hier mit Foto durchsuchbar sind.', ctaLabel:'Import-Assistent', ctaHref:'/ui/matterhorn-import'}); return renderEmptyState({icon:'🔎', title:'Keine passenden Produkte', text:'Suche oder Filter anpassen (Titel, SKU, Marke, Kategorie, EAN, Beschreibung).'}); },
+    openCreate(){this.formMode='create'; this.form=empty(); this.tab='general'; this.categoriesText=''; this.mediaText=''; this.mediaExtrasText='{"videos":[],"documents":[]}'; this.drawer=true;},
+    async openEdit(p){this.formMode='edit'; this.tab='general'; this.drawer=true; try{ const full=await apiFetch('/api/products/'+encodeURIComponent(p.sku)); this.form=Object.assign(empty(), full); if(!Array.isArray(this.form.variants)) this.form.variants=[]; if(!Array.isArray(this.form.attributes)) this.form.attributes=[]; this.form.variants=this.form.variants.map(v=>Object.assign({},v,{_attrsText: typeof v.attributes_json==='string'?v.attributes_json:JSON.stringify(v.attributes_json||v.attributes||{},null,0)})); const cats=(full.categories||[]).map(c=>c.path||c.name).filter(Boolean); this.categoriesText=cats.join('\n') || (full.category||''); const imgs=[]; if(full.main_image_url) imgs.push(full.main_image_url); (full.gallery_json||[]).forEach(x=>{const u=typeof x==='string'?x:(x&&x.url); if(u && !imgs.includes(u)) imgs.push(u);}); this.mediaText=imgs.join('\n'); this.mediaExtrasText=JSON.stringify({videos: full.videos_json||[], documents: full.documents_json||[]}); }catch(e){ this.form=Object.assign(empty(), p); toast('Details konnten nicht vollständig geladen werden: '+e.message,'warning'); } },
+    closeDrawer(){this.drawer=false;},
+    addVariant(){ if(!Array.isArray(this.form.variants)) this.form.variants=[]; this.form.variants.push({sku:'',title:'',ean:'',stock_quantity:0,supplier_price:this.form.supplier_price||0,sale_price:this.form.sale_price||0,attributes_json:{},_attrsText:'{}'}); },
+    parseVariantAttrs(v){ try{ v.attributes_json=JSON.parse(v._attrsText||'{}'); }catch(_){ toast('Varianten-Attribute sind kein gültiges JSON.','warning'); } },
+    async save(){
+      if(!this.form.sku || !this.form.title){ toast('Bitte SKU und Titel ausfüllen.','warning'); return; }
+      this.saving=true; try{
+        const cats=this.categoriesText.split(/\n+/).map(s=>s.trim()).filter(Boolean);
+        this.form.categories=cats;
+        const urls=this.mediaText.split(/\n+/).map(s=>s.trim()).filter(Boolean);
+        if(urls.length){ this.form.main_image_url=urls[0]; this.form.gallery_json=urls; } else { this.form.gallery_json=[]; }
+        try{ const extra=JSON.parse(this.mediaExtrasText||'{}'); this.form.videos_json=extra.videos||[]; this.form.documents_json=extra.documents||[]; }catch(_){}
+        this.form.variants=(this.form.variants||[]).map(v=>{const o=Object.assign({},v); try{ o.attributes_json=typeof o.attributes_json==='object'?o.attributes_json:JSON.parse(o._attrsText||'{}'); }catch(_){ o.attributes_json={}; } delete o._attrsText; return o;}).filter(v=>v.sku);
+        ['supplier_price','purchase_price','sale_price','compare_at_price','tax_rate','weight_net_kg','weight_gross_kg','length_cm','width_cm','height_cm'].forEach(k=>this.form[k]=Number(this.form[k]||0));
+        ['stock','stock_quantity','reserved_quantity','available_quantity','reorder_level','lead_time_days','supplier_stock'].forEach(k=>this.form[k]=parseInt(this.form[k]||0,10));
+        const url=this.formMode==='create'?'/api/products':'/api/products/'+encodeURIComponent(this.form.sku);
+        const method=this.formMode==='create'?'POST':'PUT';
+        await apiFetch(url,{method, body:JSON.stringify(this.form)});
+        toast(this.formMode==='create'?'Produkt angelegt.':'Änderungen gespeichert.','success'); this.drawer=false; await this.load(true);
+      }catch(e){ toast(e.message,'error'); }
+      this.saving=false;
+    },
+    async remove(p){if(!confirm(`Produkt „${p.title||p.sku}“ wirklich löschen?`)) return; try{await apiFetch('/api/products/'+encodeURIComponent(p.sku),{method:'DELETE'}); toast('Produkt gelöscht.','success'); await this.load(true);}catch(e){toast(e.message,'error')}}
+  }
+}
+</script>
+{% endblock %}

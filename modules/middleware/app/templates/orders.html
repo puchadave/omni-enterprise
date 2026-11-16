@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+{% block title %}Bestellungen | OMNI-CORE{% endblock %}
+{% block content %}
+<div x-data="ordersPage()" x-init="load()" class="space-y-4 max-w-7xl mx-auto">
+  <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
+    <div>
+      <h1 class="text-2xl md:text-3xl font-bold">Bestellungen</h1>
+      <p class="text-slate-400">Übersicht aller Bestellungen. Unbezahlte Aufträge werden automatisch für die Weitergabe gesperrt, bis der Zahlungseingang bestätigt ist.</p>
+    </div>
+    <div class="flex gap-2">
+      <button @click="openCreate()" class="btn btn-primary">+ Bestellung erfassen</button>
+      <button @click="load()" class="btn btn-secondary">Aktualisieren</button>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+    <div class="card p-4"><div class="text-xs text-slate-400 uppercase">Gesamt</div><div class="text-2xl font-bold mt-1" x-text="items.length"></div></div>
+    <div class="card p-4"><div class="text-xs text-slate-400 uppercase">Versandbereit</div><div class="text-2xl font-bold mt-1 text-emerald-300" x-text="items.filter(readyToShip).length"></div></div>
+    <div class="card p-4"><div class="text-xs text-slate-400 uppercase">Unbezahlt / blockiert</div><div class="text-2xl font-bold mt-1 text-amber-300" x-text="items.filter(isBlocked).length"></div></div>
+    <div class="card p-4"><div class="text-xs text-slate-400 uppercase">Fehler</div><div class="text-2xl font-bold mt-1 text-red-300" x-text="items.filter(o=>String(o.status)==='failed').length"></div></div>
+  </div>
+
+  <div class="card p-4 space-y-3">
+    <div class="grid md:grid-cols-3 gap-3">
+      <div class="md:col-span-2">
+        <label class="label">Suche <span class="tooltip-wrap" x-data="{t:false}"><button type="button" @mouseenter="t=true" @mouseleave="t=false" @focus="t=true" @blur="t=false" class="w-4 h-4 rounded-full bg-slate-700 text-[10px]">?</button><span x-show="t" x-cloak class="tooltip-bubble">Suchen Sie nach Bestellnummer, Artikelnummer (SKU), Kanal oder Kundenreferenz.</span></span></label>
+        <input x-model="q" class="input" placeholder="z. B. Bestellnummer, SKU oder Kanal">
+      </div>
+      <div>
+        <label class="label">Status</label>
+        <select x-model="status" class="select">
+          <option value="">Alle Status</option>
+          <option value="received">Eingegangen</option>
+          <option value="reserved">Reserviert</option>
+          <option value="dispatching">In Versand</option>
+          <option value="dispatched">Versendet</option>
+          <option value="failed">Fehler</option>
+          <option value="cancelled">Storniert</option>
+        </select>
+      </div>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      <button class="chip" :class="pill==='all'?'!bg-indigo-600 !border-indigo-500':''" @click="pill='all'">Alle</button>
+      <button class="chip" :class="pill==='blocked'?'!bg-amber-700/60 !border-amber-500':''" @click="pill='blocked'">Unbezahlt / blockiert</button>
+      <button class="chip" :class="pill==='ready'?'!bg-emerald-700/50 !border-emerald-500':''" @click="pill='ready'">Versandbereit</button>
+      <button class="chip" :class="pill==='failed'?'!bg-red-700/50 !border-red-500':''" @click="pill='failed'">Fehler</button>
+    </div>
+  </div>
+
+  <template x-if="error">
+    <div class="banner banner-error"><div class="font-medium">Bestellungen konnten nicht geladen werden</div><div class="text-sm mt-1" x-text="error"></div><button class="btn btn-secondary !py-1.5 mt-2" @click="load()">Erneut versuchen</button></div>
+  </template>
+
+  <div class="card overflow-hidden">
+    <div x-show="loading" class="p-4 space-y-2">
+      <div class="skeleton h-10 w-full"></div><div class="skeleton h-10 w-full"></div><div class="skeleton h-10 w-5/6"></div>
+    </div>
+    <div class="table-wrap" x-show="!loading && !error">
+      <table class="tbl" x-show="filtered().length>0">
+        <thead><tr><th>Bestellung</th><th>Artikel (SKU)</th><th>Menge</th><th>Kanal</th><th>Zahlung</th><th>Weitergabe</th><th>Status</th><th>Aktualisiert</th></tr></thead>
+        <tbody>
+          <template x-for="o in filtered()" :key="(o.order_id||o.id||Math.random())">
+            <tr class="hover:bg-slate-800/40 cursor-pointer" @click="openDetail(o)">
+              <td><div class="font-medium" x-text="o.order_id||o.id||'—'"></div><div class="text-xs text-slate-500" x-text="o.customer_reference||''"></div></td>
+              <td class="font-mono text-xs" x-text="o.sku||'—'"></td>
+              <td x-text="o.quantity??'—'"></td>
+              <td x-text="o.marketplace||o.channel||'—'"></td>
+              <td><span class="badge" :class="uiBadgeClass(payKey(o))" x-text="uiPaymentLabel(o.payment_status)"></span></td>
+              <td>
+                <template x-if="isBlocked(o)">
+                  <div class="flex flex-col gap-1"><span class="badge badge-red">🔒 Blockiert</span><span class="text-[11px] text-amber-300 max-w-[14rem] leading-snug">Weitergabe blockiert – Zahlungseingang noch nicht bestätigt.</span></div>
+                </template>
+                <template x-if="!isBlocked(o)">
+                  <span class="badge badge-green">Freigegeben</span>
+                </template>
+              </td>
+              <td><span class="badge" :class="uiBadgeClass(o.status)" x-text="uiStatusLabel(o.status)"></span></td>
+              <td class="text-xs text-slate-400" x-text="fmtDate(o.updated_at||o.created_at)"></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+      <template x-if="filtered().length===0"><div x-html="emptyHtml()"></div></template>
+    </div>
+  </div>
+
+  <!-- Detail-Drawer -->
+  <div x-show="drawer" x-cloak class="fixed inset-0 z-50">
+    <div class="absolute inset-0 bg-black/60" @click="drawer=false"></div>
+    <div class="absolute right-0 top-0 h-full w-full max-w-xl bg-slate-950 border-l border-slate-800 shadow-2xl flex flex-col" @keydown.escape.window="if(drawer) drawer=false">
+      <div class="p-4 border-b border-slate-800 flex items-center justify-between"><div><div class="text-sm text-slate-400">Bestelldetails</div><div class="font-semibold text-lg" x-text="selected?.order_id||selected?.id||'—'"></div></div><button class="btn btn-ghost !py-1.5" @click="drawer=false">Schließen</button></div>
+      <div class="flex-1 overflow-y-auto p-4 space-y-4" x-show="selected">
+        <template x-if="isBlocked(selected)">
+          <div class="banner banner-warn"><div class="font-medium">🔒 Weitergabe blockiert</div><div class="text-sm mt-1">Die Weitergabe dieser Bestellung ist gesperrt, weil der Zahlungseingang noch nicht bestätigt wurde oder die Bestellung manuell gesperrt ist. Eine Ausführung/Freigabe ist erst nach bestätigter Zahlung möglich.</div></div>
+        </template>
+        <template x-if="selected && !isBlocked(selected)">
+          <div class="banner banner-success"><div class="font-medium">Freigegeben</div><div class="text-sm mt-1">Zahlung bestätigt und keine Sperre – die Bestellung kann weiterverarbeitet werden.</div></div>
+        </template>
+        <div class="grid grid-cols-2 gap-3 text-sm">
+          <div class="card p-3"><div class="text-slate-400 text-xs">Artikel (SKU)</div><div class="font-mono" x-text="selected.sku||'—'"></div></div>
+          <div class="card p-3"><div class="text-slate-400 text-xs">Menge</div><div x-text="selected.quantity??'—'"></div></div>
+          <div class="card p-3"><div class="text-slate-400 text-xs">Kanal</div><div x-text="selected.marketplace||selected.channel||'—'"></div></div>
+          <div class="card p-3"><div class="text-slate-400 text-xs">Kundenreferenz</div><div x-text="selected.customer_reference||'—'"></div></div>
+          <div class="card p-3"><div class="text-slate-400 text-xs">Zahlungsstatus</div><div><span class="badge" :class="uiBadgeClass(payKey(selected))" x-text="uiPaymentLabel(selected.payment_status)"></span></div></div>
+          <div class="card p-3"><div class="text-slate-400 text-xs">Bestellstatus</div><div><span class="badge" :class="uiBadgeClass(selected.status)" x-text="uiStatusLabel(selected.status)"></span></div></div>
+          <div class="card p-3"><div class="text-slate-400 text-xs">Sendungsnummer</div><div x-text="selected.tracking_number||'—'"></div></div>
+          <div class="card p-3"><div class="text-slate-400 text-xs">Erstellt</div><div x-text="fmtDate(selected.created_at)"></div></div>
+        </div>
+        <template x-if="selected.last_error"><div class="banner banner-error"><div class="font-medium">Hinweis / Fehler bei der Verarbeitung</div><div class="text-sm mt-1" x-text="selected.last_error"></div></div></template>
+        <template x-if="selected.tracking_url"><a :href="selected.tracking_url" target="_blank" class="btn btn-secondary">Sendungsverfolgung öffnen</a></template>
+      </div>
+    </div>
+  </div>
+
+  <!-- Create Modal -->
+  <div x-show="modal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div class="absolute inset-0 bg-black/60" @click="modal=false"></div>
+    <div class="relative w-full max-w-xl card p-5 space-y-4" @keydown.escape.window="if(modal) modal=false">
+      <div class="flex items-center justify-between"><h2 class="text-lg font-semibold">Bestellung manuell erfassen</h2><button @click="modal=false" class="text-slate-400 hover:text-white text-xl">×</button></div>
+      <p class="text-sm text-slate-400">Erfassen Sie eine Bestellung, um sie in der Verarbeitungsliste zu führen. Pflichtfelder sind markiert.</p>
+      <div class="grid md:grid-cols-2 gap-3">
+        <div><label class="label">Bestellnummer *</label><input x-model="form.order_id" class="input font-mono" placeholder="z. B. ORD-1001"><p class="help-text">Eindeutige Kennung der Bestellung.</p></div>
+        <div><label class="label">Artikelnummer (SKU) *</label><input x-model="form.sku" class="input font-mono" placeholder="z. B. SKU-123"></div>
+        <div><label class="label">Menge *</label><input x-model.number="form.quantity" type="number" min="1" class="input"></div>
+        <div><label class="label">Vertriebskanal *</label><input x-model="form.marketplace" class="input" placeholder="z. B. Shopware, manuell"><p class="help-text">Name des Kanals, über den die Bestellung einging.</p></div>
+        <div class="md:col-span-2"><label class="label">Kundenreferenz (optional)</label><input x-model="form.customer_reference" class="input" placeholder="z. B. Kundenname oder externe Referenz"></div>
+      </div>
+      <div class="flex justify-end gap-2"><button @click="modal=false" class="btn btn-secondary">Abbrechen</button><button @click="create()" class="btn btn-primary" :disabled="saving"><span x-show="!saving">Bestellung anlegen</span><span x-show="saving">Wird angelegt…</span></button></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function ordersPage(){
+  return {
+    items:[],q:'',status:'',pill:'all',loading:false,error:'',modal:false,drawer:false,saving:false,selected:null,
+    form:{order_id:'',sku:'',quantity:1,marketplace:'manuell',customer_reference:''},
+    async load(){this.loading=true; this.error=''; try{const d=await apiFetch('/api/orders?limit=500'); this.items=Array.isArray(d)?d:(d.items||[]);}catch(e){this.error=e.message; this.items=[];} this.loading=false;},
+    payKey(o){const s=String((o||{}).payment_status||'').toLowerCase(); if(['paid','verified','captured','completed'].includes(s)) return 'paid'; return 'unpaid';},
+    isBlocked(o){if(!o) return false; const payOk=['paid','verified','captured','completed'].includes(String(o.payment_status||'').toLowerCase()); const locked = o.fulfillment_locked===true || String(o.fulfillment_locked).toLowerCase()==='true' || String(o.fulfillment_locked)==='1'; return !payOk || locked;},
+    readyToShip(o){return !this.isBlocked(o) && !['failed','cancelled','dispatched'].includes(String(o.status||''));},
+    filtered(){const q=(this.q||'').toLowerCase(); return this.items.filter(o=>{
+      if(this.status && String(o.status)!==this.status) return false;
+      if(this.pill==='blocked' && !this.isBlocked(o)) return false;
+      if(this.pill==='ready' && !this.readyToShip(o)) return false;
+      if(this.pill==='failed' && String(o.status)!=='failed') return false;
+      if(!q) return true; return [o.order_id,o.id,o.sku,o.customer_reference,o.marketplace,o.channel].some(v=>String(v||'').toLowerCase().includes(q));
+    });},
+    emptyHtml(){ if(this.items.length===0) return renderEmptyState({icon:'📦', title:'Noch keine Bestellungen vorhanden', text:'Sobald Bestellungen eingehen oder manuell erfasst werden, erscheinen sie hier. Unbezahlte Bestellungen werden automatisch für die Weitergabe gesperrt.', ctaLabel:'+ Bestellung erfassen', ctaOnclick:'this.closest(\'[x-data]\').__x.$data.openCreate()'}); return renderEmptyState({icon:'🔎', title:'Keine passenden Bestellungen', text:'Passen Sie die Suche oder die Filter an, um Ergebnisse zu sehen.'}); },
+    openCreate(){this.modal=true;},
+    openDetail(o){this.selected=o; this.drawer=true;},
+    async create(){
+      if(!this.form.order_id || !this.form.sku){ toast('Bitte geben Sie mindestens Bestellnummer und Artikelnummer (SKU) an.','warning'); return; }
+      this.saving=true; try{const result=await apiFetch('/api/orders',{method:'POST',body:JSON.stringify(this.form)}); toast(result.status==='queued'?'Bestellung wurde zur Weitergabe eingereiht.':'Bestellung wurde erfasst und wartet auf bestätigten Zahlungseingang.','info'); this.modal=false; this.form={order_id:'',sku:'',quantity:1,marketplace:'manuell',customer_reference:''}; await this.load();}catch(e){toast(e.message,'error')} this.saving=false;
+    }
+  }
+}
+</script>
+{% endblock %}

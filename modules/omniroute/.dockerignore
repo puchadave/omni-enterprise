@@ -1,0 +1,11 @@
+.git
+.env
+!.env.example
+data
+logs
+.state
+*.log
+README.md
+docker-compose*.yml
+start.sh
+scripts

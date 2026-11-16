@@ -1,0 +1,67 @@
+name: omni-edge-proxy
+
+x-log: &log
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "5" }
+
+services:
+  traefik:
+    <<: *log
+    image: traefik:${TRAEFIK_TAG:-v3.1}
+    container_name: ${COMPOSE_PROJECT_NAME:-omni-edge}-traefik
+    restart: unless-stopped
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - "${SERVICE_BIND_HOST:-0.0.0.0}:--entrypoints.web.address=:80"
+      - "${SERVICE_BIND_HOST:-0.0.0.0}:--entrypoints.websecure.address=:443"
+      - --api.dashboard=true
+      - --api.insecure=${TRAEFIK_DASHBOARD_INSECURE:-false}
+      - --log.level=${TRAEFIK_LOG_LEVEL:-INFO}
+      - --accesslog=true
+    ports:
+      - "${SERVICE_BIND_HOST:-0.0.0.0}:${TRAEFIK_HTTP_PORT:-80}:80"
+      - "${TRAEFIK_HTTPS_PORT:-443}:443"
+      - "${SERVICE_BIND_HOST:-0.0.0.0}:${TRAEFIK_DASHBOARD_PORT:-8080}:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik_letsencrypt:/letsencrypt
+      - ./config/dynamic:/etc/traefik/dynamic:ro
+    networks:
+      - edge-net
+
+
+  zerotier:
+    image: ${ZEROTIER_IMAGE:-zerotier/zerotier:latest}
+    container_name: ${COMPOSE_PROJECT_NAME:-omni}-zerotier
+    restart: unless-stopped
+    profiles: ["zt"]
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    volumes:
+      - zerotier_data:/var/lib/zerotier-one
+    environment:
+      ZT_NETWORK_ID: ${ZT_NETWORK_ID:-}
+    command: ["sh","-lc","zerotier-one -d; sleep 3; if [ -n \"${ZT_NETWORK_ID:-}\" ]; then zerotier-cli join ${ZT_NETWORK_ID} || true; fi; tail -f /dev/null"]
+    healthcheck:
+      test: ["CMD-SHELL", "zerotier-cli info >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  zerotier_data:
+    name: ${COMPOSE_PROJECT_NAME:-omni}_zerotier_data
+  traefik_letsencrypt:
+    name: ${COMPOSE_PROJECT_NAME:-omni-edge}_letsencrypt
+
+networks:
+  edge-net:
+    name: ${COMPOSE_PROJECT_NAME:-omni-edge}_net
+    driver: bridge

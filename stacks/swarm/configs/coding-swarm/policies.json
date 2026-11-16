@@ -1,0 +1,10 @@
+{
+  "local_only_models": ["omni-local-gdpr"],
+  "max_self_heal_iterations": 3,
+  "require_audit_before_complete": true,
+  "scrub_secrets_before_cloud": true,
+  "deny_destructive_shell_patterns": ["rm -rf /", "mkfs", ":(){:|:&};:", "shutdown", "reboot"],
+  "allowed_checks": ["python -m py_compile", "python3 -m py_compile", "bash -n", "php -l", "pytest"],
+  "workspace_root": "/workspace",
+  "branch_prefix": "swarm/"
+}

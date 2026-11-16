@@ -1,0 +1,23 @@
+# env & secrets
+.env
+.env.*
+!.env.example
+!**/.env.example
+secrets/generated/*
+!secrets/generated/.gitkeep
+
+# runtime / data / backups
+backups/*
+!backups/.gitkeep
+**/data/runtime/
+**/.runtime/
+**/runtime/
+**/logs/
+*.log
+
+# python / misc
+__pycache__/
+*.py[cod]
+*.sqlite
+*.db-journal
+.DS_Store

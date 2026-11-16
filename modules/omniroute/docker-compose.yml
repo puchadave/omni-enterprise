@@ -1,0 +1,85 @@
+name: omniroute-gateway
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  omniroute:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        OMNIROUTE_VERSION: ${OMNIROUTE_VERSION:-latest}
+    image: ${OMNIROUTE_IMAGE:-ghcr.io/local/omniroute-gateway}:${OMNIROUTE_TAG:-1.0.0}
+    container_name: ${COMPOSE_PROJECT_NAME:-omniroute}-gateway
+    restart: unless-stopped
+    init: true
+    environment:
+      TZ: ${TZ:-Europe/Berlin}
+      OMNIROUTE_SERVER_HOST: 0.0.0.0
+      OMNIROUTE_PORT: ${OMNIROUTE_PORT:-20128}
+      REQUIRE_API_KEY: ${REQUIRE_API_KEY:-true}
+      OMNIROUTE_API_KEY: ${OMNIROUTE_API_KEY:-__GENERATE__}
+      OMNIROUTE_STORAGE_ENCRYPTION_KEY: ${OMNIROUTE_STORAGE_ENCRYPTION_KEY:-__GENERATE__}
+      OMNIROUTE_TIMEOUT_MS: ${OMNIROUTE_TIMEOUT_MS:-1200}
+      OMNIROUTE_FAILOVER_TIMEOUT_MS: ${OMNIROUTE_FAILOVER_TIMEOUT_MS:-1400}
+      OMNIROUTE_RETRY_429: ${OMNIROUTE_RETRY_429:-true}
+      OMNIROUTE_RETRY_502: ${OMNIROUTE_RETRY_502:-true}
+      OMNIROUTE_RETRY_503: ${OMNIROUTE_RETRY_503:-true}
+      OMNIROUTE_CACHE_RESPONSES: ${OMNIROUTE_CACHE_RESPONSES:-true}
+      OMNIROUTE_CACHE_TTL_SECONDS: ${OMNIROUTE_CACHE_TTL_SECONDS:-300}
+    ports:
+      - "${SERVICE_BIND_HOST:-0.0.0.0}:${OMNIROUTE_PORT:-20128}:20128"
+    volumes:
+      - omniroute_config:/root/.omniroute
+      - omniroute_data:/data
+      - ./config/config.json:/root/.omniroute/config.json:ro
+      - ./config/omnicore-auto-combos.json:/data/omnicore-auto-combos.json:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:20128/v1/models >/dev/null 2>&1 || curl -fsS -o /dev/null http://127.0.0.1:20128/v1/models >/dev/null 2>&1 || node -e \"require('http').get('http://127.0.0.1:20128/v1/models',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))\" >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    networks: [omniroute-net]
+    logging: *default-logging
+
+
+  zerotier:
+    image: ${ZEROTIER_IMAGE:-zerotier/zerotier:latest}
+    container_name: ${COMPOSE_PROJECT_NAME:-omni}-zerotier
+    restart: unless-stopped
+    profiles: ["zt"]
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    volumes:
+      - zerotier_data:/var/lib/zerotier-one
+    environment:
+      ZT_NETWORK_ID: ${ZT_NETWORK_ID:-}
+    command: ["sh","-lc","zerotier-one -d; sleep 3; if [ -n \"${ZT_NETWORK_ID:-}\" ]; then zerotier-cli join ${ZT_NETWORK_ID} || true; fi; tail -f /dev/null"]
+    healthcheck:
+      test: ["CMD-SHELL", "zerotier-cli info >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  zerotier_data:
+    name: ${COMPOSE_PROJECT_NAME:-omni}_zerotier_data
+  omniroute_config:
+    name: ${COMPOSE_PROJECT_NAME:-omniroute}_config
+  omniroute_data:
+    name: ${COMPOSE_PROJECT_NAME:-omniroute}_data
+
+networks:
+  omniroute-net:
+    name: ${COMPOSE_PROJECT_NAME:-omniroute}_net
+    driver: bridge

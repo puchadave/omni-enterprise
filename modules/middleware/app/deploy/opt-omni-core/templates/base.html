@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="de" class="h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}OMNI-CORE Admin{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <style>
+    [x-cloak]{display:none!important}
+    .nav-link{display:flex;align-items:center;gap:.5rem;padding:.45rem .75rem;border-radius:.5rem;color:#cbd5e1;font-size:.875rem}
+    .nav-link:hover{background:#1f2937;color:#fff}
+    .nav-link.active{background:#312e81;color:#fff}
+    .nav-section{margin:.85rem .5rem .25rem;font-size:.68rem;letter-spacing:.08em;text-transform:uppercase;color:#64748b;font-weight:700}
+    .card{background:#0f172a;border:1px solid #1e293b;border-radius:.75rem}
+    .btn{display:inline-flex;align-items:center;justify-content:center;gap:.4rem;padding:.55rem .9rem;border-radius:.5rem;font-size:.875rem;font-weight:500;transition:.15s}
+    .btn:disabled{opacity:.55;cursor:not-allowed}
+    .btn-primary{background:#4f46e5;color:#fff}.btn-primary:hover:not(:disabled){background:#6366f1}
+    .btn-secondary{background:#334155;color:#fff}.btn-secondary:hover:not(:disabled){background:#475569}
+    .btn-danger{background:#b91c1c;color:#fff}.btn-danger:hover:not(:disabled){background:#dc2626}
+    .btn-ghost{background:transparent;color:#cbd5e1;border:1px solid #334155}.btn-ghost:hover{background:#1e293b;color:#fff}
+    .input,.select,.textarea{width:100%;background:#1e293b;border:1px solid #334155;border-radius:.5rem;padding:.55rem .75rem;color:#e2e8f0;font-size:.875rem}
+    .input:focus,.select:focus,.textarea:focus{outline:none;border-color:#6366f1;box-shadow:0 0 0 1px #6366f1}
+    .label{display:flex;align-items:center;gap:.35rem;font-size:.8rem;color:#94a3b8;margin-bottom:.25rem}
+    .help-text{font-size:.75rem;color:#64748b;margin-top:.25rem;line-height:1.35}
+    .table-wrap{overflow:auto}.tbl{width:100%;font-size:.875rem;border-collapse:separate;border-spacing:0}
+    .tbl th{text-align:left;color:#94a3b8;font-weight:600;padding:.65rem .75rem;background:#020617;position:sticky;top:0;z-index:1}
+    .tbl td{padding:.65rem .75rem;border-top:1px solid #1e293b;vertical-align:top}
+    .badge{display:inline-flex;align-items:center;gap:.3rem;padding:.18rem .55rem;border-radius:999px;font-size:.72rem;font-weight:600;border:1px solid;white-space:nowrap}
+    .badge-green{background:rgba(16,185,129,.12);color:#6ee7b7;border-color:rgba(16,185,129,.35)}
+    .badge-amber{background:rgba(245,158,11,.12);color:#fcd34d;border-color:rgba(245,158,11,.35)}
+    .badge-red{background:rgba(239,68,68,.12);color:#fca5a5;border-color:rgba(239,68,68,.35)}
+    .badge-slate{background:#1e293b;color:#cbd5e1;border-color:#334155}
+    .empty-state{padding:2.25rem 1rem;text-align:center;color:#94a3b8}
+    .empty-state .icon{font-size:1.9rem;margin-bottom:.35rem}
+    .empty-state .title{font-weight:600;color:#e2e8f0;margin-bottom:.25rem}
+    .skeleton{background:linear-gradient(90deg,#1e293b,#334155,#1e293b);background-size:200% 100%;animation:sk 1.2s infinite;border-radius:.375rem}
+    @keyframes sk{0%{background-position:200% 0}100%{background-position:-200% 0}}
+    .chip{display:inline-flex;align-items:center;padding:.35rem .6rem;border-radius:999px;font-size:.75rem;border:1px solid #334155;background:#1e293b;color:#e2e8f0}
+    .chip:hover{background:#334155}
+    .tooltip-wrap{position:relative;display:inline-flex}
+    .tooltip-bubble{position:absolute;left:50%;transform:translateX(-50%);bottom:125%;background:#020617;border:1px solid #334155;color:#e2e8f0;font-size:.72rem;line-height:1.35;padding:.45rem .55rem;border-radius:.5rem;width:14rem;z-index:40;box-shadow:0 10px 25px rgba(0,0,0,.35)}
+    .banner{border-radius:.6rem;padding:.75rem .9rem;font-size:.875rem;border:1px solid}
+    .banner-error{background:rgba(127,29,29,.25);border-color:#7f1d1d;color:#fecaca}
+    .banner-warn{background:rgba(120,53,15,.2);border-color:#92400e;color:#fde68a}
+    .banner-success{background:rgba(6,78,59,.25);border-color:#065f46;color:#a7f3d0}
+  </style>
+</head>
+<body class="h-full bg-slate-950 text-slate-100" x-data="{open:false, path: window.location.pathname}" @keydown.escape.window="open=false">
+  <div class="min-h-full flex">
+    <aside class="hidden lg:flex lg:flex-col lg:w-72 lg:fixed lg:inset-y-0 bg-slate-900 border-r border-slate-800">
+      <div class="px-4 py-4 border-b border-slate-800 flex items-center justify-between">
+        <a href="/" class="text-lg font-extrabold tracking-tight">OMNI-CORE <span class="text-indigo-400">Verwaltung</span></a>
+        <span class="text-[10px] px-2 py-0.5 rounded bg-emerald-900/40 text-emerald-300 border border-emerald-800">Admin</span>
+      </div>
+      <nav class="flex-1 overflow-y-auto p-3">
+        <div class="nav-section">Übersicht</div>
+        <a href="/" class="nav-link" :class="path==='/'?'active':''">Dashboard</a>
+        <a href="/control-center" class="nav-link" :class="path==='/control-center'?'active':''">Kontrollzentrale</a>
+        <a href="/ui/master-dashboard" class="nav-link" :class="path==='/ui/master-dashboard'?'active':''">Gesamtübersicht</a>
+        <a href="/ui/analytics" class="nav-link" :class="path==='/ui/analytics'?'active':''">Auswertungen</a>
+
+        <div class="nav-section">Katalog & Verkauf</div>
+        <a href="/ui/products" class="nav-link" :class="path.startsWith('/ui/products')||path==='/admin/products'?'active':''">Produkte</a>
+        <a href="/ui/inventory" class="nav-link" :class="path==='/ui/inventory'?'active':''">Lagerbestand</a>
+        <a href="/ui/pricing-center" class="nav-link" :class="path==='/ui/pricing-center'?'active':''">Preise & Kalkulation</a>
+        <a href="/ui/bundle-studio" class="nav-link" :class="path==='/ui/bundle-studio'?'active':''">Produkt-Bundles</a>
+        <a href="/ui/orders" class="nav-link" :class="path.startsWith('/ui/orders')||path==='/admin/orders'?'active':''">Bestellungen</a>
+        <a href="/ui/crm" class="nav-link" :class="path==='/ui/crm'?'active':''">Kunden & Kommunikation</a>
+        <a href="/ui/erp-pim" class="nav-link" :class="path==='/ui/erp-pim'?'active':''">Warenwirtschaft / Produktdaten</a>
+
+        <div class="nav-section">Vertriebskanäle</div>
+        <a href="/ui/matterhorn-import" class="nav-link" :class="path==='/ui/matterhorn-import'?'active':''">Lieferanten-Import (Matterhorn)</a>
+        <a href="/ui/shopware" class="nav-link" :class="path==='/ui/shopware'?'active':''">Shopware</a>
+        <a href="/ui/connectors" class="nav-link" :class="path==='/ui/connectors'?'active':''">Anbindungen</a>
+        <a href="/ui/marketplaces" class="nav-link" :class="path==='/ui/marketplaces'?'active':''">Marktplätze (Amazon, eBay …)</a>
+        <a href="/ui/integrations" class="nav-link" :class="path==='/ui/integrations'?'active':''">Integrationsstatus</a>
+        <a href="/google" class="nav-link" :class="path.startsWith('/google')?'active':''">Google Merchant</a>
+        <a href="/omniroute" class="nav-link" :class="path.startsWith('/omniroute')?'active':''">KI-Gateway (OmniRoute)</a>
+        <a href="/ui/gtin-intelligence" class="nav-link" :class="path==='/ui/gtin-intelligence'?'active':''">Produkt- & GTIN-Daten</a>
+        <a href="/ui/internal-communication" class="nav-link" :class="path==='/ui/internal-communication'?'active':''">Ereignisse & interne Hinweise</a>
+
+        <div class="nav-section">KI & Inhalte</div>
+        <a href="/ui/ai-control" class="nav-link" :class="path==='/ui/ai-control'?'active':''">KI-Steuerung</a>
+        <a href="/ui/content-studio" class="nav-link" :class="path==='/ui/content-studio'?'active':''">Content-Studio</a>
+        <a href="/ui/ai-photoshooting" class="nav-link" :class="path==='/ui/ai-photoshooting'?'active':''">KI-Produktbilder</a>
+        <a href="/ui/model-management" class="nav-link" :class="path==='/ui/model-management'?'active':''">Modellverwaltung</a>
+        <a href="/ui/competitor-intelligence" class="nav-link" :class="path==='/ui/competitor-intelligence'?'active':''">Wettbewerbsbeobachtung</a>
+        <a href="/ui/trend-intelligence" class="nav-link" :class="path==='/ui/trend-intelligence'?'active':''">Trend-Analyse</a>
+        <a href="/ui/news-events" class="nav-link" :class="path==='/ui/news-events'?'active':''">Szenen-News & Events</a>
+        <a href="/ui/knowledge-base" class="nav-link" :class="path==='/ui/knowledge-base'?'active':''">Wissensdatenbank</a>
+        <button type="button" onclick="toggleAIAgent()" class="nav-link w-full text-left text-indigo-300 hover:text-white">KI-Copilot öffnen</button>
+
+        <div class="nav-section">System & Sicherheit</div>
+        <a href="/ui/jobs-automation" class="nav-link" :class="path==='/ui/jobs-automation'?'active':''">Automatische Aufgaben</a>
+        <a href="/ui/audit-log" class="nav-link" :class="path==='/ui/audit-log'?'active':''">Protokoll & Aktivitäten</a>
+        <a href="/ui/security" class="nav-link" :class="path==='/ui/security'?'active':''">Sicherheit & Zugänge</a>
+        <a href="/ui/settings" class="nav-link" :class="path==='/ui/settings' || path==='/settings'?'active':''">Einstellungen</a>
+      </nav>
+      <div class="p-3 border-t border-slate-800 text-xs text-slate-400 flex items-center justify-between">
+        <span>Angemeldet</span>
+        <button onclick="logoutSession()" class="hover:text-white underline-offset-2 hover:underline">Abmelden</button>
+      </div>
+    </aside>
+
+    <div class="lg:pl-72 flex-1 flex flex-col min-w-0">
+      <header class="lg:hidden sticky top-0 z-30 bg-slate-900/95 backdrop-blur border-b border-slate-800 px-4 py-3 flex items-center justify-between">
+        <a href="/" class="font-bold">OMNI-CORE</a>
+        <div class="flex gap-2"><button @click="open=!open" class="btn btn-secondary !py-1.5 !px-3">Menü</button><button onclick="logoutSession()" class="btn btn-ghost !py-1.5 !px-3">Abmelden</button></div>
+      </header>
+      <div x-show="open" x-cloak class="lg:hidden border-b border-slate-800 bg-slate-900 p-3 grid grid-cols-2 gap-1 text-sm">
+        <template x-for="l in [['/','Dashboard'],['/ui/products','Produkte'],['/ui/orders','Bestellungen'],['/ui/crm','Kunden & Kommunikation'],['/ui/inventory','Lagerbestand'],['/ui/matterhorn-import','Lieferanten-Import'],['/ui/marketplaces','Marktplätze'],['/ui/integrations','Integrationen'],['/ui/jobs-automation','Aufgaben'],['/ui/analytics','Auswertungen'],['/ui/security','Sicherheit'],['/ui/settings','Einstellungen']]" :key="l[0]">
+          <a :href="l[0]" @click="open=false" class="block px-3 py-2 rounded hover:bg-slate-800" x-text="l[1]"></a>
+        </template>
+      </div>
+
+      <div id="global-toast" class="fixed top-4 right-4 z-[60] space-y-2 pointer-events-none"></div>
+      <main class="flex-1 p-4 md:p-6 lg:p-8">
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+  </div>
+
+  <button id="ai-agent-launcher" type="button" onclick="toggleAIAgent()" class="fixed bottom-5 right-5 z-40 rounded-full bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-3 font-semibold shadow-xl">KI-Copilot</button>
+
+  <aside id="ai-agent-drawer" class="fixed top-0 right-0 z-50 h-full w-full max-w-xl bg-slate-950 border-l border-slate-800 text-slate-100 hidden flex flex-col shadow-2xl" aria-label="KI-Copilot">
+    <div class="p-4 border-b border-slate-800 flex items-center justify-between">
+      <div>
+        <div class="font-semibold">KI-Copilot</div>
+        <div class="text-xs text-slate-400">Unterstützung in Alltagssprache · Änderungen nur nach Ihrer Bestätigung</div>
+      </div>
+      <button type="button" onclick="toggleAIAgent()" class="text-slate-400 hover:text-white text-2xl leading-none" aria-label="Schließen">×</button>
+    </div>
+    <div class="px-4 pt-3 border-b border-slate-800/60 pb-3">
+      <div class="text-xs text-slate-400 mb-2">Schnellbefehle für diese Seite</div>
+      <div id="ai-agent-chips" class="flex flex-wrap gap-2"></div>
+    </div>
+    <div id="ai-agent-messages" class="flex-1 overflow-y-auto p-4 space-y-3 text-sm">
+      <div class="bg-slate-900 border border-slate-800 rounded-lg p-3">
+        Ich helfe Ihnen beim Nachschlagen von Informationen und bereite Änderungen vor. <strong>Schreibende Aktionen werden nie automatisch ausgeführt</strong> – Sie bestätigen jede Übernahme explizit. Sicherheitsregeln (z. B. keine Weitergabe bei unbezahlten Bestellungen) bleiben geschützt.
+      </div>
+    </div>
+    <div id="ai-agent-pending" class="hidden p-3 border-t border-amber-900 bg-amber-950/30 space-y-2"></div>
+    <form id="ai-agent-form" class="p-4 border-t border-slate-800">
+      <div class="flex gap-2">
+        <textarea id="ai-agent-input" rows="2" maxlength="12000" placeholder="Stellen Sie Ihre Anfrage in Alltagssprache, z. B. „Zeige den Status der Anbindungen“." class="flex-1 rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"></textarea>
+        <button type="submit" class="self-end bg-indigo-600 hover:bg-indigo-500 rounded-lg px-4 py-2 font-semibold">Senden</button>
+      </div>
+    </form>
+  </aside>
+
+  {% include "partials/api_client.html" %}
+  <script>
+    async function logoutSession(){try{await apiFetch('/api/auth/logout',{method:'POST'});}catch(e){} window.location.href='/login';}
+
+    function toast(msg,type='info',opts={}){
+      const c=document.getElementById('global-toast'); if(!c) return;
+      const d=document.createElement('div');
+      const cls=type==='error'?'border-red-700 bg-red-950/95 text-red-100':(type==='success'?'border-emerald-700 bg-emerald-950/95 text-emerald-100':(type==='warning'?'border-amber-700 bg-amber-950/95 text-amber-100':'border-slate-700 bg-slate-900/95 text-slate-100'));
+      d.className='pointer-events-auto border '+cls+' rounded-lg px-3 py-2.5 text-sm shadow-xl max-w-sm';
+      d.textContent=String(msg); c.appendChild(d);
+      setTimeout(()=>d.remove(), opts.duration||4500);
+    }
+
+    function fmt(v){if(v==null||v==='') return '—'; if(typeof v==='object'){try{return JSON.stringify(v);}catch(_){return String(v)}} return String(v);}
+    function fmtDate(v){if(!v) return '—'; try{return new Date(v).toLocaleString('de-DE',{dateStyle:'short',timeStyle:'short'})}catch(_){return String(v)}}
+
+    function renderEmptyState({icon='🗂️', title='Noch keine Einträge', text='Sobald Daten vorliegen, werden sie hier angezeigt.', ctaLabel=null, ctaHref=null, ctaOnclick=null}={}){
+      const btn = ctaLabel ? (ctaHref?`<a href="${ctaHref}" class="btn btn-primary mt-3">${ctaLabel}</a>`:`<button type="button" class="btn btn-primary mt-3" onclick="${ctaOnclick}">${ctaLabel}</button>`) : '';
+      return `<div class="empty-state"><div class="icon">${icon}</div><div class="title">${title}</div><div class="text-sm text-slate-400 max-w-md mx-auto">${text}</div>${btn}</div>`;
+    }
+    function renderErrorBanner(message, retryFnName=null){
+      const retry = retryFnName?`<button class="btn btn-secondary !py-1.5 mt-2" onclick="${retryFnName}()">Erneut versuchen</button>`:'';
+      return `<div class="banner banner-error"><div class="font-medium">Aktion nicht erfolgreich</div><div class="text-sm mt-1">${String(message||'Es ist ein Fehler aufgetreten.')}</div>${retry}</div>`;
+    }
+
+    // AI Copilot
+    let aiAgentConversationId = null;
+    function toggleAIAgent(){const d=document.getElementById('ai-agent-drawer'); d.classList.toggle('hidden'); if(!d.classList.contains('hidden')){renderAIAgentChips(); document.getElementById('ai-agent-input').focus();}}
+    function aiAgentAdd(role, text){const box=document.getElementById('ai-agent-messages'); const el=document.createElement('div'); el.className=(role==='user'?'ml-8 bg-indigo-950 border border-indigo-800':'mr-8 bg-slate-900 border border-slate-800')+' rounded-lg p-3 whitespace-pre-wrap'; el.textContent=text||''; box.appendChild(el); box.scrollTop=box.scrollHeight;}
+    function aiAgentEsc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#039;'}[c]));}
+    function renderAIPending(actions){const box=document.getElementById('ai-agent-pending'); if(!actions||!actions.length){box.classList.add('hidden'); box.innerHTML=''; return;} box.classList.remove('hidden'); box.innerHTML='<div class="font-semibold text-amber-300 text-sm">Bitte bestätigen – die Änderung wird erst nach Ihrer Freigabe ausgeführt</div>'+actions.map(a=>'<div class="border border-amber-800 rounded-lg p-3 text-sm bg-slate-950/40"><div class="font-medium text-slate-100">Möchten Sie diese Einstellung übernehmen?</div><div class="mt-1 text-slate-300">'+aiAgentEsc(a.summary||'Geplante Änderung')+'</div><details class="mt-2 text-xs text-slate-400"><summary class="cursor-pointer hover:text-slate-200">Technische Details anzeigen</summary><pre class="mt-2 whitespace-pre-wrap overflow-auto">'+aiAgentEsc(JSON.stringify(a.diff,null,2))+'</pre></details><div class="mt-3 flex gap-2"><button onclick="confirmAIAction(\''+aiAgentEsc(a.action_id)+'\')" class="btn btn-primary !py-1.5">Übernehmen</button><button onclick="cancelAIAction(\''+aiAgentEsc(a.action_id)+'\')" class="btn btn-secondary !py-1.5">Abbrechen</button></div></div>').join('');}
+
+    function aiChipsForPath(){
+      const p=window.location.pathname||'/';
+      if(p.startsWith('/ui/orders')||p==='/admin/orders') return ['Zeige alle unbezahlten Bestellungen','Welche Bestellungen sind versandbereit?','Prüfe blockierte Weitergaben'];
+      if(p==='/ui/crm') return ['Fasse offene Kundenanfragen zusammen','Neuen Termin mit Kunde anlegen','Zeige Threads ohne Bestellbezug'];
+      if(p.startsWith('/ui/products')) return ['Zeige Produkte ohne Bestand','Welche Produkte sind Entwürfe?','Prüfe fehlende Produktdaten'];
+      if(p==='/ui/matterhorn-import') return ['Prüfe den Matterhorn-Importstatus','Zeige letzte Importfehler','Ist die Feed-Adresse konfiguriert?'];
+      if(p==='/ui/marketplaces' || p==='/ui/connectors' || p==='/ui/integrations' || p==='/ui/shopware') return ['Shopware-Sync prüfen','Welche Anbindungen sind nicht konfiguriert?','Zeige den Integrationsstatus'];
+      if(p==='/ui/settings') return ['Welche Einstellungen fehlen noch?','Prüfe die OmniRoute-Konfiguration','Zeige den Integrationsstatus'];
+      if(p==='/ui/news-events') return ['Fasse aktuelle Szenen-Signale zusammen','Gibt es neue Trends in den gespeicherten Daten?'];
+      if(p==='/ui/ai-control' || p==='/ui/ai-photoshooting' || p==='/ui/content-studio') return ['Welche KI-Modelle sind verfügbar?','Prüfe die KI-Konfiguration'];
+      return ['Gib mir eine Systemübersicht','Gibt es aktuelle Fehler oder Warnungen?','Welche Aufgaben sind offen?'];
+    }
+    function renderAIAgentChips(){const box=document.getElementById('ai-agent-chips'); if(!box) return; box.innerHTML=aiChipsForPath().map(t=>`<button type="button" class="chip" onclick="aiSendPreset(${JSON.stringify(t)})">${aiAgentEsc(t)}</button>`).join('');}
+    async function aiSendPreset(text){const input=document.getElementById('ai-agent-input'); input.value=text; document.getElementById('ai-agent-form').dispatchEvent(new Event('submit',{cancelable:true,bubbles:true}));}
+
+    const _aiForm=document.getElementById('ai-agent-form'); if(_aiForm){_aiForm.addEventListener('submit', async (e)=>{e.preventDefault(); const input=document.getElementById('ai-agent-input'); const message=input.value.trim(); if(!message) return; input.value=''; aiAgentAdd('user', message); try{const data=await apiFetch('/api/ai-agent/chat',{method:'POST', body: JSON.stringify({message, conversation_id: aiAgentConversationId})}); aiAgentConversationId=data.conversation_id||aiAgentConversationId; aiAgentAdd('assistant', data.message||'Ich habe Ihre Anfrage geprüft. Falls eine Änderung nötig ist, bereite ich sie zur Bestätigung vor.'); renderAIPending(data.pending_actions||[]);}catch(err){aiAgentAdd('assistant','Das hat leider nicht geklappt: '+err.message+' Bitte versuchen Sie es erneut oder formulieren Sie die Anfrage etwas anders.');}});}
+    async function confirmAIAction(actionId){try{const data=await apiFetch('/api/ai-agent/actions/'+encodeURIComponent(actionId)+'/confirm',{method:'POST', body:'{}'}); aiAgentAdd('assistant','Änderung übernommen.'); renderAIPending([]); toast('Änderung wurde übernommen.','success');}catch(err){aiAgentAdd('assistant','Die Übernahme war nicht möglich: '+err.message); toast(err.message,'error');}}
+    async function cancelAIAction(actionId){try{await apiFetch('/api/ai-agent/actions/'+encodeURIComponent(actionId)+'/cancel',{method:'POST', body:'{}'}); aiAgentAdd('assistant','Vorgang abgebrochen. Es wurde nichts geändert.'); renderAIPending([]);}catch(err){aiAgentAdd('assistant','Abbrechen nicht möglich: '+err.message);}}
+
+    document.addEventListener('keydown', (e)=>{ if(e.key==='Escape'){ const d=document.getElementById('ai-agent-drawer'); if(d && !d.classList.contains('hidden')) toggleAIAgent(); }});
+  </script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

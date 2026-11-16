@@ -1,0 +1,7 @@
+{
+  "architect": {"combo": "omni-admin-agent", "fallback": "auto/smart", "role": "planning"},
+  "coder_complex": {"combo": "omni-admin-agent", "fallback": "auto/coding", "role": "implementation"},
+  "coder_docs": {"combo": "omni-content-seo", "fallback": "auto/cheap", "role": "boilerplate_docs_ui"},
+  "auditor": {"combo": "omni-local-gdpr", "local_only": true, "no_cloud_fallback": true, "role": "security_dsgvo_review"},
+  "qa": {"combo": "omni-crm-support", "fallback": "auto/fast", "role": "testing_self_heal"}
+}

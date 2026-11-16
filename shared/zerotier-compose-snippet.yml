@@ -1,0 +1,25 @@
+# Optional ZeroTier sidecar (opt-in). Prefer host-installed ZeroTier; use container only if needed.
+# Requires elevated capabilities/devices on the host; join/authorization controlled by ZT_NETWORK_ID.
+# Usage: enable profile `zt` and set ZT_NETWORK_ID (and mount identity if persistent).
+  zerotier:
+    image: ${ZEROTIER_IMAGE:-zerotier/zerotier:latest}
+    container_name: ${COMPOSE_PROJECT_NAME:-omni}-zerotier
+    restart: unless-stopped
+    profiles: ["zt"]
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    volumes:
+      - zerotier_data:/var/lib/zerotier-one
+    environment:
+      ZT_NETWORK_ID: ${ZT_NETWORK_ID:-}
+    command: ["sh","-lc","zerotier-one -d; sleep 3; [ -n \"${ZT_NETWORK_ID:-}\" ] && zerotier-cli join ${ZT_NETWORK_ID} || true; tail -f /dev/null"]
+    healthcheck:
+      test: ["CMD-SHELL", "zerotier-cli info >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s

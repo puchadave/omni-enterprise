@@ -1,0 +1,321 @@
+[
+    {
+        "Id": "310b4d4eb7c16e4038425d60faac368e1cca32577746b4fb4d6b8ecbdc6c3bd1",
+        "Created": "2026-11-15T17:15:30.451432191Z",
+        "Path": "uvicorn",
+        "Args": [
+            "main:app",
+            "--host",
+            "0.0.0.0",
+            "--port",
+            "8000",
+            "--workers",
+            "1",
+            "--loop",
+            "uvloop"
+        ],
+        "State": {
+            "Status": "running",
+            "Running": true,
+            "Paused": false,
+            "Restarting": false,
+            "OOMKilled": false,
+            "Dead": false,
+            "Pid": 1425759,
+            "ExitCode": 0,
+            "Error": "",
+            "StartedAt": "2026-11-15T17:59:02.496495876Z",
+            "FinishedAt": "2026-11-15T17:59:02.340607127Z",
+            "Health": {
+                "Status": "healthy",
+                "FailingStreak": 0,
+                "Log": [
+                    {
+                        "Start": "2026-11-16T10:55:23.457107789+01:00",
+                        "End": "2026-11-16T10:55:23.489024289+01:00",
+                        "ExitCode": 0,
+                        "Output": ""
+                    },
+                    {
+                        "Start": "2026-11-16T10:55:33.490120448+01:00",
+                        "End": "2026-11-16T10:55:33.524606861+01:00",
+                        "ExitCode": 0,
+                        "Output": ""
+                    },
+                    {
+                        "Start": "2026-11-16T10:55:43.525758268+01:00",
+                        "End": "2026-11-16T10:55:43.560135706+01:00",
+                        "ExitCode": 0,
+                        "Output": ""
+                    },
+                    {
+                        "Start": "2026-11-16T10:55:53.561312416+01:00",
+                        "End": "2026-11-16T10:55:53.595320735+01:00",
+                        "ExitCode": 0,
+                        "Output": ""
+                    },
+                    {
+                        "Start": "2026-11-16T10:56:03.596505063+01:00",
+                        "End": "2026-11-16T10:56:03.636824595+01:00",
+                        "ExitCode": 0,
+                        "Output": ""
+                    }
+                ]
+            }
+        },
+        "Image": "sha256:a2392ed9b0952bdda5132664d28fb321901c7c861f6ee2aecf8ee90d8eb36e68",
+        "ResolvConfPath": "/docker/containers/310b4d4eb7c16e4038425d60faac368e1cca32577746b4fb4d6b8ecbdc6c3bd1/resolv.conf",
+        "HostnamePath": "/docker/containers/310b4d4eb7c16e4038425d60faac368e1cca32577746b4fb4d6b8ecbdc6c3bd1/hostname",
+        "HostsPath": "/docker/containers/310b4d4eb7c16e4038425d60faac368e1cca32577746b4fb4d6b8ecbdc6c3bd1/hosts",
+        "LogPath": "/docker/containers/310b4d4eb7c16e4038425d60faac368e1cca32577746b4fb4d6b8ecbdc6c3bd1/310b4d4eb7c16e4038425d60faac368e1cca32577746b4fb4d6b8ecbdc6c3bd1-json.log",
+        "Name": "/omni-core-middleware-omni-core-1",
+        "RestartCount": 0,
+        "Driver": "overlayfs",
+        "Platform": "linux",
+        "MountLabel": "",
+        "ProcessLabel": "",
+        "AppArmorProfile": "docker-default",
+        "ExecIDs": null,
+        "HostConfig": {
+            "Binds": [
+                "omni-core-middleware_app_data:/app/data:rw"
+            ],
+            "ContainerIDFile": "",
+            "LogConfig": {
+                "Type": "json-file",
+                "Config": {}
+            },
+            "NetworkMode": "omni-core-middleware_omni-net",
+            "PortBindings": {
+                "8000/tcp": [
+                    {
+                        "HostIp": "",
+                        "HostPort": "8002"
+                    }
+                ]
+            },
+            "RestartPolicy": {
+                "Name": "unless-stopped",
+                "MaximumRetryCount": 0
+            },
+            "AutoRemove": false,
+            "VolumeDriver": "",
+            "VolumesFrom": null,
+            "ConsoleSize": [
+                0,
+                0
+            ],
+            "CapAdd": null,
+            "CapDrop": null,
+            "CgroupnsMode": "private",
+            "Dns": null,
+            "DnsOptions": null,
+            "DnsSearch": null,
+            "ExtraHosts": [],
+            "GroupAdd": null,
+            "IpcMode": "private",
+            "Cgroup": "",
+            "Links": null,
+            "OomScoreAdj": 0,
+            "PidMode": "",
+            "Privileged": false,
+            "PublishAllPorts": false,
+            "ReadonlyRootfs": false,
+            "SecurityOpt": null,
+            "UTSMode": "",
+            "UsernsMode": "",
+            "ShmSize": 67108864,
+            "Runtime": "runc",
+            "Isolation": "",
+            "CpuShares": 0,
+            "Memory": 0,
+            "NanoCpus": 0,
+            "CgroupParent": "",
+            "BlkioWeight": 0,
+            "BlkioWeightDevice": null,
+            "BlkioDeviceReadBps": null,
+            "BlkioDeviceWriteBps": null,
+            "BlkioDeviceReadIOps": null,
+            "BlkioDeviceWriteIOps": null,
+            "CpuPeriod": 0,
+            "CpuQuota": 0,
+            "CpuRealtimePeriod": 0,
+            "CpuRealtimeRuntime": 0,
+            "CpusetCpus": "",
+            "CpusetMems": "",
+            "Devices": null,
+            "DeviceCgroupRules": null,
+            "DeviceRequests": null,
+            "MemoryReservation": 0,
+            "MemorySwap": 0,
+            "MemorySwappiness": null,
+            "OomKillDisable": null,
+            "PidsLimit": null,
+            "Ulimits": null,
+            "CpuCount": 0,
+            "CpuPercent": 0,
+            "IOMaximumIOps": 0,
+            "IOMaximumBandwidth": 0,
+            "MaskedPaths": [
+                "/proc/acpi",
+                "/proc/asound",
+                "/proc/interrupts",
+                "/proc/kcore",
+                "/proc/keys",
+                "/proc/latency_stats",
+                "/proc/sched_debug",
+                "/proc/scsi",
+                "/proc/timer_list",
+                "/proc/timer_stats",
+                "/sys/devices/virtual/powercap",
+                "/sys/firmware"
+            ],
+            "ReadonlyPaths": [
+                "/proc/bus",
+                "/proc/fs",
+                "/proc/irq",
+                "/proc/sys",
+                "/proc/sysrq-trigger"
+            ]
+        },
+        "Storage": {
+            "RootFS": {
+                "Snapshot": {
+                    "Name": "overlayfs"
+                }
+            }
+        },
+        "Mounts": [
+            {
+                "Type": "volume",
+                "Name": "omni-core-middleware_app_data",
+                "Source": "/docker/volumes/omni-core-middleware_app_data/_data",
+                "Destination": "/app/data",
+                "Driver": "local",
+                "Mode": "rw",
+                "RW": true,
+                "Propagation": ""
+            }
+        ],
+        "Config": {
+            "Hostname": "310b4d4eb7c1",
+            "Domainname": "",
+            "User": "omnicore",
+            "AttachStdin": false,
+            "AttachStdout": true,
+            "AttachStderr": true,
+            "ExposedPorts": {
+                "8000/tcp": {}
+            },
+            "Tty": false,
+            "OpenStdin": false,
+            "StdinOnce": false,
+            "Env": [
+                "MATTERHORN_API_TOKEN=",
+                "INTERNAL_API_KEY=",
+                "SESSION_SECRET=BqwJeCqkJp7ung9uqRcQCYqoI02Gcxxi0GKnyLrIzaPHaVkWVd6qs4zlBsccQV9y",
+                "DATABASE_URL=postgresql://omnichat:4a68bfa3b690b2753ab7082a@db:5432/omnicore",
+                "OMNIROUTE_URL=",
+                "OMNIROUTE_API_KEY=",
+                "PATH=/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                "LANG=C.UTF-8",
+                "GPG_KEY=A035C8C19219BA821ECEA86B64E628F8D684696D",
+                "PYTHON_VERSION=3.11.18",
+                "PYTHON_SHA256=9120e0a653868f6e3698d36cdd99e5a58903ec9469e448f21d98f7b16d8fa290",
+                "PYTHONUNBUFFERED=1",
+                "PYTHONDONTWRITEBYTECODE=1",
+                "DATABASE_PATH=/app/data/middleware.db"
+            ],
+            "Cmd": [
+                "uvicorn",
+                "main:app",
+                "--host",
+                "0.0.0.0",
+                "--port",
+                "8000",
+                "--workers",
+                "1",
+                "--loop",
+                "uvloop"
+            ],
+            "Healthcheck": {
+                "Test": [
+                    "CMD-SHELL",
+                    "wget -q -O /dev/null http://127.0.0.1:8000/healthz || exit 1"
+                ],
+                "Interval": 10000000000,
+                "Timeout": 3000000000,
+                "StartPeriod": 20000000000,
+                "Retries": 12
+            },
+            "Image": "omni-core-middleware-omni-core",
+            "Volumes": null,
+            "WorkingDir": "/app",
+            "Entrypoint": null,
+            "Labels": {
+                "com.docker.compose.config-hash": "f7681fbfa3970ca58c51f55ece842c272e9a4e7bb60a23e55f16bc9fa1f939f7",
+                "com.docker.compose.container-number": "1",
+                "com.docker.compose.depends_on": "db:service_healthy:false",
+                "com.docker.compose.image": "sha256:494854d62428ed12129373c6618f590868b8099862126b2a386b483b5dae0dbb",
+                "com.docker.compose.oneoff": "False",
+                "com.docker.compose.project": "omni-core-middleware",
+                "com.docker.compose.project.config_files": "/home/puchadav/GIT/omni-core-middleware/docker-compose.yml",
+                "com.docker.compose.project.working_dir": "/home/puchadav/GIT/omni-core-middleware",
+                "com.docker.compose.replace": "omni-core-1",
+                "com.docker.compose.service": "omni-core",
+                "com.docker.compose.version": "5.7.1"
+            }
+        },
+        "NetworkSettings": {
+            "SandboxID": "0b8d3a70f492ac52a306339853f6be7a79953f23d7d977025ff29b1d81e040cd",
+            "SandboxKey": "/var/run/docker/netns/0b8d3a70f492",
+            "Ports": {
+                "8000/tcp": [
+                    {
+                        "HostIp": "0.0.0.0",
+                        "HostPort": "8002"
+                    },
+                    {
+                        "HostIp": "::",
+                        "HostPort": "8002"
+                    }
+                ]
+            },
+            "Networks": {
+                "omni-core-middleware_omni-net": {
+                    "IPAMConfig": null,
+                    "Links": null,
+                    "Aliases": [
+                        "omni-core-middleware-omni-core-1",
+                        "omni-core"
+                    ],
+                    "DriverOpts": null,
+                    "GwPriority": 0,
+                    "NetworkID": "88dd084862d51ae4eb2656979e16d3f60a11c065ad6151509d2dba7aeeb0f66a",
+                    "EndpointID": "300812d9da7d4a29f9ffa45a5aa1adfa77982f022bee42530fcea6cb5c683a18",
+                    "Gateway": "172.20.0.1",
+                    "IPAddress": "172.20.0.3",
+                    "MacAddress": "6a:37:f0:3c:2c:b0",
+                    "IPPrefixLen": 16,
+                    "IPv6Gateway": "",
+                    "GlobalIPv6Address": "",
+                    "GlobalIPv6PrefixLen": 0,
+                    "DNSNames": [
+                        "omni-core-middleware-omni-core-1",
+                        "omni-core",
+                        "310b4d4eb7c1"
+                    ]
+                }
+            }
+        },
+        "ImageManifestDescriptor": {
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "digest": "sha256:494854d62428ed12129373c6618f590868b8099862126b2a386b483b5dae0dbb",
+            "size": 2009,
+            "platform": {
+                "architecture": "amd64",
+                "os": "linux"
+            }
+        }
+    }
+]

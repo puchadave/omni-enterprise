@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Protokoll & Aktivitäten | OMNI-CORE{% endblock %}
+{% block content %}
+<div x-data="page()" x-init="loadAll()" class="space-y-4 max-w-7xl mx-auto">
+  <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
+    <div>
+      <h1 class="text-2xl md:text-3xl font-bold">Protokoll & Aktivitäten</h1>
+      <p class="text-slate-400">Nachvollziehbare Übersicht über Systemereignisse und Aktivitäten. Hilfreich zur Fehlersuche und Kontrolle.</p>
+    </div>
+    <div class="flex gap-2 items-end">
+      <div><label class="label">Suche</label><input x-model="q" class="input" placeholder="Nach Aktion, Modul oder Meldung filtern"></div>
+      <button @click="loadAll()" class="btn btn-primary">Aktualisieren</button>
+    </div>
+  </div>
+
+  <template x-if="error"><div class="banner banner-error"><div class="font-medium">Protokoll konnte nicht geladen werden</div><div class="text-sm mt-1" x-text="error"></div><button class="btn btn-secondary !py-1.5 mt-2" @click="loadAll()">Erneut versuchen</button></div></template>
+
+  <div class="card overflow-hidden">
+    <div x-show="loading" class="p-4 space-y-2"><div class="skeleton h-10 w-full"></div><div class="skeleton h-10 w-full"></div><div class="skeleton h-10 w-5/6"></div></div>
+    <div class="table-wrap" x-show="!loading && !error">
+      <table class="tbl" x-show="filtered().length>0">
+        <thead><tr><th>Zeitpunkt</th><th>Stufe</th><th>Bereich/Aktion</th><th>Beschreibung</th></tr></thead>
+        <tbody>
+          <template x-for="(row,idx) in filtered()" :key="row.id || idx">
+            <tr class="hover:bg-slate-800/40 cursor-pointer" @click="open=row">
+              <td class="text-xs text-slate-400 whitespace-nowrap" x-text="fmtDate(row.created_at || row.timestamp || row.time)"></td>
+              <td><span class="badge" :class="uiBadgeClass(level(row))" x-text="levelLabel(row)"></span></td>
+              <td><div class="font-medium" x-text="row.event || row.action || row.type || 'Ereignis'"></div><div class="text-xs text-slate-500" x-text="row.source_module || row.module || ''"></div></td>
+              <td class="text-sm max-w-xl"><div class="line-clamp-2" x-text="row.message || row.detail || summarize(row)"></div></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+      <template x-if="filtered().length===0">
+        <div class="empty-state"><div class="icon">📋</div><div class="title">Keine Protokolleinträge vorhanden</div><div class="text-sm">Sobald im System Aktionen ausgeführt werden oder Ereignisse auftreten, werden sie hier nachvollziehbar aufgeführt.</div></div>
+      </template>
+    </div>
+  </div>
+
+  <!-- Detail drawer -->
+  <div x-show="open" x-cloak class="fixed inset-0 z-50">
+    <div class="absolute inset-0 bg-black/60" @click="open=null"></div>
+    <div class="absolute right-0 top-0 h-full w-full max-w-xl bg-slate-950 border-l border-slate-800 shadow-2xl flex flex-col" @keydown.escape.window="if(open) open=null">
+      <div class="p-4 border-b border-slate-800 flex items-center justify-between"><div><div class="text-sm text-slate-400">Ereignisdetails</div><div class="font-semibold" x-text="open?.event || open?.action || 'Protokolleintrag'"></div></div><button class="btn btn-ghost !py-1.5" @click="open=null">Schließen</button></div>
+      <div class="p-4 overflow-y-auto space-y-3 text-sm">
+        <div class="grid grid-cols-2 gap-2">
+          <div class="card p-3"><div class="text-xs text-slate-400">Zeitpunkt</div><div x-text="fmtDate(open?.created_at||open?.timestamp)"></div></div>
+          <div class="card p-3"><div class="text-xs text-slate-400">Stufe</div><div><span class="badge" :class="uiBadgeClass(level(open))" x-text="levelLabel(open)"></span></div></div>
+          <div class="card p-3 col-span-2"><div class="text-xs text-slate-400">Bereich</div><div x-text="open?.source_module || open?.module || '—'"></div></div>
+        </div>
+        <div class="card p-3"><div class="text-xs text-slate-400 mb-1">Beschreibung</div><div x-text="open?.message || open?.detail || 'Keine Beschreibung vorhanden.'"></div></div>
+        <details class="text-xs text-slate-500"><summary class="cursor-pointer hover:text-slate-300">Technische Details</summary><pre class="mt-2 bg-slate-950 border border-slate-800 rounded p-2 overflow-auto max-h-80" x-text="JSON.stringify(open,null,2)"></pre></details>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function page(){return{
+  loading:true,error:'',items:[],q:'',open:null,
+  level(r){const l=String((r||{}).level||(r||{}).severity||'info').toLowerCase(); if(['error','critical','fatal','failed'].includes(l)) return 'error'; if(['warn','warning'].includes(l)) return 'pending'; return 'active';},
+  levelLabel(r){const l=String((r||{}).level||(r||{}).severity||'Info').toLowerCase(); if(['error','critical','fatal','failed'].includes(l)) return 'Fehler'; if(['warn','warning'].includes(l)) return 'Hinweis'; return 'Info';},
+  summarize(r){try{const c=r.context_json||r.context||r.payload; if(!c) return '—'; if(typeof c==='string') return c; return JSON.stringify(c);}catch(_){return '—'}},
+  filtered(){const q=(this.q||'').toLowerCase(); if(!q) return this.items; return this.items.filter(r=>[r.event,r.action,r.type,r.message,r.source_module,r.module,r.level].some(v=>String(v||'').toLowerCase().includes(q)));},
+  async loadAll(){this.loading=true; this.error=''; try{const d=await apiFetch('/api/audit-log?limit=200'); this.items=Array.isArray(d)?d:(d.items||d.events||[]);}catch(e){this.error=e.message; this.items=[];} this.loading=false;}
+}}
+</script>
+{% endblock %}

@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}Dashboard | OMNI-CORE{% endblock %}
+{% block content %}
+<div x-data="dash()" x-init="load()" class="space-y-6 max-w-7xl mx-auto">
+  <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-bold">Dashboard</h1>
+      <p class="text-slate-400">Ihr Überblick: wichtige Kennzahlen, Systemzustand, Anbindungen und letzte Aktivitäten – alles auf einen Blick.</p>
+    </div>
+    <div class="flex gap-2">
+      <a href="/ui/orders" class="btn btn-secondary">Bestellungen ansehen</a>
+      <button @click="load()" class="btn btn-primary">Aktualisieren</button>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+    <div class="card p-4"><div class="text-xs text-slate-400 uppercase">Produkte im Katalog</div><div class="text-3xl font-bold mt-1" x-text="loading?'…':(stats.product_count ?? '—')"></div><div class="text-xs text-slate-500 mt-1" x-text="(stats.active_product_count??0)+' aktiv'"></div></div>
+    <div class="card p-4"><div class="text-xs text-slate-400 uppercase">Offene Bestellungen</div><div class="text-3xl font-bold mt-1" :class="(stats.pending_order_count||0)>0?'text-amber-300':''" x-text="loading?'…':(stats.pending_order_count ?? '—')"></div><div class="text-xs text-slate-500 mt-1"><a href="/ui/orders" class="text-indigo-400 hover:underline">Zur Bearbeitung</a></div></div>
+    <div class="card p-4"><div class="text-xs text-slate-400 uppercase">Fehler (letzte 24 Std.)</div><div class="text-3xl font-bold mt-1" :class="(stats.error_count||0)>0?'text-red-400':'text-emerald-400'" x-text="loading?'…':(stats.error_count ?? 0)"></div><div class="text-xs text-slate-500 mt-1" x-text="(stats.error_count||0)>0?'Bitte Protokoll prüfen':'Alles stabil'"></div></div>
+    <div class="card p-4"><div class="text-xs text-slate-400 uppercase">Ereignisverarbeitung</div><div class="mt-2"><span class="badge" :class="uiBadgeClass(events.running?'active':'pending')" x-text="events.running?'Aktiv':'Pausiert / nicht aktiv'"></span></div><div class="text-xs text-slate-500 mt-2">Verarbeitet interne Systemereignisse.</div></div>
+  </div>
+
+  <div class="grid lg:grid-cols-3 gap-4">
+    <div class="card p-4 lg:col-span-2">
+      <h2 class="font-semibold mb-1">Schnellzugriff</h2>
+      <p class="text-sm text-slate-400 mb-3">Häufig genutzte Bereiche direkt öffnen.</p>
+      <div class="grid sm:grid-cols-2 md:grid-cols-3 gap-2 text-sm">
+        <a href="/ui/products" class="px-3 py-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700">Produkte verwalten</a>
+        <a href="/ui/orders" class="px-3 py-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700">Bestellungen & Weitergabe</a>
+        <a href="/ui/crm" class="px-3 py-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700">Kunden & Kommunikation</a>
+        <a href="/ui/matterhorn-import" class="px-3 py-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700">Lieferanten-Import</a>
+        <a href="/ui/integrations" class="px-3 py-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700">Integrationsstatus</a>
+        <a href="/ui/settings" class="px-3 py-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700">Einstellungen</a>
+      </div>
+      <div class="mt-4 banner banner-warn text-sm"><div class="font-medium">Hinweis zur Weitergabe</div><div class="mt-1">Bestellungen werden automatisch blockiert, solange der Zahlungseingang nicht bestätigt ist. Details sehen Sie in der Bestellübersicht.</div></div>
+    </div>
+
+    <div class="card p-4">
+      <h2 class="font-semibold mb-1">Systemzustand</h2>
+      <p class="text-xs text-slate-400 mb-3">Live-Status der wichtigsten Dienste.</p>
+      <template x-if="healthErr"><div class="banner banner-error text-sm" x-text="healthErr"></div></template>
+      <div class="space-y-2 text-sm" x-show="!healthErr">
+        <div class="flex items-center justify-between"><span>API</span><span class="badge" :class="uiBadgeClass(health.status||'unknown')" x-text="uiStatusLabel(health.status||'Unbekannt')"></span></div>
+        <div class="flex items-center justify-between"><span>Datenbank</span><span class="badge" :class="uiBadgeClass(health.database||'unknown')" x-text="health.database ? String(health.database).toUpperCase() : '—'"></span></div>
+        <div class="flex items-center justify-between"><span>KI-Gateway</span><span class="badge" :class="uiBadgeClass(health.omniroute_healthy?'connected':'not_configured')" x-text="health.omniroute_healthy?'Verbunden':'Nicht verbunden / nicht konfiguriert'"></span></div>
+        <div class="flex items-center justify-between"><span>Warteschlange</span><span class="text-slate-200" x-text="(health.queue_size ?? 0)+' Aufgaben'"></span></div>
+        <div class="flex items-center justify-between"><span>Betriebszeit</span><span class="text-slate-200" x-text="health.uptime_seconds ? Math.round(health.uptime_seconds/60)+' Min.' : '—'"></span></div>
+      </div>
+      <details class="mt-3 text-xs text-slate-500"><summary class="cursor-pointer hover:text-slate-300">Technische Details</summary><pre class="mt-2 bg-slate-950 border border-slate-800 rounded p-2 overflow-auto max-h-40" x-text="JSON.stringify(health,null,2)"></pre></details>
+    </div>
+  </div>
+
+  <div class="grid lg:grid-cols-2 gap-4">
+    <div class="card p-4">
+      <div class="flex items-center justify-between mb-2"><h2 class="font-semibold">Anbindungen im Überblick</h2><a href="/ui/integrations" class="text-sm text-indigo-400 hover:underline">Details</a></div>
+      <p class="text-xs text-slate-400 mb-3">Nur korrekt konfigurierte Anbindungen können Daten austauschen.</p>
+      <template x-if="integErr"><div class="banner banner-error text-sm" x-text="integErr"></div></template>
+      <div class="space-y-2" x-show="!integErr">
+        <template x-for="(val,name) in integ" :key="name">
+          <div class="flex items-center justify-between border-b border-slate-800 pb-2 last:border-0">
+            <span class="capitalize" x-text="prettyName(name)"></span>
+            <span class="badge" :class="uiBadgeClass(normalizeStatus(val))" x-text="uiStatusLabel(normalizeStatus(val))"></span>
+          </div>
+        </template>
+        <div x-show="Object.keys(integ||{}).length===0" class="empty-state !py-6"><div class="title">Keine Statusdaten verfügbar</div><div class="text-sm">Richten Sie Anbindungen unter „Einstellungen“ ein, um hier den Status zu sehen.</div><a href="/ui/settings" class="btn btn-primary mt-3">Zu den Einstellungen</a></div>
+      </div>
+    </div>
+
+    <div class="card p-4">
+      <div class="flex items-center justify-between mb-2"><h2 class="font-semibold">Letzte Import-Läufe</h2><a href="/ui/matterhorn-import" class="text-sm text-indigo-400 hover:underline">Zum Import</a></div>
+      <template x-if="runsErr"><div class="banner banner-error text-sm" x-text="runsErr"></div></template>
+      <div class="space-y-2" x-show="!runsErr">
+        <template x-for="r in (runs||[]).slice(0,6)" :key="r.id || r.started_at || Math.random()">
+          <div class="flex items-center justify-between border-b border-slate-800 pb-2 last:border-0 text-sm">
+            <div><div class="font-medium" x-text="r.mode ? ('Import ('+r.mode+')') : 'Import'"></div><div class="text-xs text-slate-500" x-text="fmtDate(r.started_at||r.created_at)"></div></div>
+            <span class="badge" :class="uiBadgeClass(r.status)" x-text="uiStatusLabel(r.status||'—')"></span>
+          </div>
+        </template>
+        <div x-show="!runs || runs.length===0" class="empty-state !py-6"><div class="icon">⬇️</div><div class="title">Noch keine Importe durchgeführt</div><div class="text-sm">Starten Sie einen Lieferanten-Import, um Produkte in Ihren Katalog zu übernehmen.</div><a href="/ui/matterhorn-import" class="btn btn-primary mt-3">Import starten</a></div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function dash(){return{
+  loading:true, stats:{}, health:{}, events:{}, integ:{}, runs:[],
+  healthErr:'', integErr:'', runsErr:'',
+  normalizeStatus(v){return typeof v==='string'?v:(v&&(v.status||v.state))||'unknown';},
+  prettyName(n){const m={shopware:'Shopware', amazon:'Amazon', ebay:'eBay', email:'E-Mail', messenger:'Messenger', omniroute:'KI-Gateway', google:'Google Merchant', matterhorn:'Matterhorn'}; return m[n]||n;},
+  async load(){
+    this.loading=true;
+    const safe=async (u)=>{try{return {ok:true,data:await apiFetch(u)}}catch(e){return {ok:false,err:e.message}}};
+    const [s,h,e,i,r]=await Promise.all([safe('/api/stats'),safe('/api/health'),safe('/api/events/stats'),safe('/api/integrations/status'),safe('/api/import-runs?limit=10')]);
+    this.stats=s.ok?s.data:{}; this.events=e.ok?e.data:{};
+    if(h.ok){this.health=h.data; this.healthErr='';} else {this.health={}; this.healthErr=h.err;}
+    if(i.ok){this.integ=i.data||{}; this.integErr='';} else {this.integ={}; this.integErr=i.err;}
+    if(r.ok){const d=r.data; this.runs=Array.isArray(d)?d:(d.items||d.runs||[]); this.runsErr='';} else {this.runs=[]; this.runsErr=r.err;}
+    this.loading=false;
+  }
+}}
+</script>
+{% endblock %}

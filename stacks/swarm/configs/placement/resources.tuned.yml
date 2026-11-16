@@ -1,0 +1,39 @@
+# Tuned defaults for mixed cluster (pve01-03: 2C/4G, pve04: 4C8T/32G)
+services:
+  edge-proxy:
+    replicas: 1
+    limits: {cpus: "0.50", memory: 256M}
+    reservations: {cpus: "0.10", memory: 64M}
+  portainer-server:
+    replicas: 1
+    limits: {cpus: "0.50", memory: 256M}
+  omniroute:
+    replicas: 1
+    limits: {cpus: "1.00", memory: 768M}
+    reservations: {cpus: "0.25", memory: 256M}
+  middleware-core:
+    replicas: 1
+    limits: {cpus: "2.00", memory: 6G}
+    reservations: {cpus: "0.50", memory: 1G}
+    placement: {node: pve04}
+  middleware-db:
+    replicas: 1
+    limits: {cpus: "1.50", memory: 4G}
+    reservations: {cpus: "0.25", memory: 512M}
+    placement: {node: pve04}
+  shopware:
+    replicas: 1
+    limits: {cpus: "2.00", memory: 8G}
+    placement: {node: pve04}
+  marketing:
+    replicas: 1
+    limits: {cpus: "0.50", memory: 512M}
+  social:
+    replicas: 1
+    limits: {cpus: "0.50", memory: 512M}
+  content-studio:
+    replicas: 1
+    limits: {cpus: "1.00", memory: 768M}
+  coding-swarm-dev:
+    replicas: 0 # on-demand profile
+    limits: {cpus: "1.00", memory: 768M}

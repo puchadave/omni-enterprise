@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Wissensdatenbank | OMNI-CORE{% endblock %}
+{% block content %}
+<div x-data="kbPage()" x-init="loadAll()" class="space-y-4 max-w-7xl mx-auto">
+  <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
+    <div>
+      <h1 class="text-2xl md:text-3xl font-bold">Wissensdatenbank</h1>
+      <p class="text-slate-400">Kuratierte, verifizierte Wissenseinträge (z. B. zu Produkten, Markt, Szene, Trends) als Grundlage für Analysen und Inhalte. Erfassen Sie nur belegte Informationen.</p>
+    </div>
+    <button @click="loadAll()" class="btn btn-primary">Aktualisieren</button>
+  </div>
+  <template x-if="msg"><div class="banner" :class="err?'banner-error':'banner-success'" x-text="msg"></div></template>
+
+  <div class="grid lg:grid-cols-3 gap-4">
+    <div class="card p-4 space-y-3 lg:col-span-1">
+      <h2 class="font-semibold">Neuen Eintrag anlegen</h2>
+      <div><label class="label">Titel *</label><input x-model="entry.title" class="input" placeholder="Kurzer, eindeutiger Titel"></div>
+      <div><label class="label">Kategorie</label><select x-model="entry.category" class="select"><option value="general">Allgemein</option><option value="product">Produkt</option><option value="market">Markt</option><option value="scene">Szene</option><option value="trend">Trend</option><option value="artist">Artist</option><option value="event">Event</option></select></div>
+      <div><label class="label">Quelle / Referenz (optional)</label><input x-model="entry.source" class="input" placeholder="z. B. Link oder Dokumentname"><p class="help-text">Hilft bei der Nachvollziehbarkeit.</p></div>
+      <div><label class="label">Schlagwörter (optional)</label><input x-model="tags" class="input" placeholder="z. B. Festival, Sommer, Vinyl"><p class="help-text">Mehrere Begriffe mit Komma trennen.</p></div>
+      <div><label class="label">Inhalt *</label><textarea x-model="entry.content" class="textarea" rows="6" placeholder="Beschreiben Sie die Information klar und faktenbasiert."></textarea></div>
+      <button @click="save()" class="btn btn-primary w-full" :disabled="busy"><span x-show="!busy">Eintrag speichern</span><span x-show="busy">Wird gespeichert…</span></button>
+      <p class="help-text">Hinweis: Keine sensiblen Zugangsdaten und keine erfundenen Fakten speichern.</p>
+    </div>
+
+    <div class="card p-4 lg:col-span-2">
+      <div class="flex flex-col md:flex-row md:justify-between md:items-center gap-2 mb-2"><h2 class="font-semibold">Gespeicherte Einträge</h2><input x-model="q" class="input max-w-sm" placeholder="Einträge durchsuchen…"></div>
+      <div x-show="loading" class="space-y-2"><div class="skeleton h-12 w-full"></div><div class="skeleton h-12 w-full"></div></div>
+      <div class="overflow-auto max-h-[34rem] border border-slate-800 rounded" x-show="!loading && filtered().length">
+        <table class="tbl"><thead><tr><th>Eintrag</th><th>Kategorie</th><th>Quelle</th><th>Aktualisiert</th></tr></thead><tbody>
+          <template x-for="e in filtered()" :key="e.id"><tr class="hover:bg-slate-800/40 cursor-pointer" @click="open=e">
+            <td><div class="font-medium" x-text="e.title"></div><div class="text-xs text-slate-500 line-clamp-2 max-w-lg" x-text="e.content"></div></td>
+            <td><span class="badge badge-slate" x-text="catLabel(e.category)"></span></td>
+            <td class="text-xs" x-text="e.source||'—'"></td>
+            <td class="text-xs text-slate-400 whitespace-nowrap" x-text="fmtDate(e.updated_at||e.created_at)"></td>
+          </tr></template>
+        </tbody></table>
+      </div>
+      <template x-if="!loading && filtered().length===0"><div class="empty-state"><div class="icon">📚</div><div class="title" x-text="items.length===0?'Noch keine Einträge vorhanden':'Keine passenden Einträge'"></div><div class="text-sm" x-text="items.length===0?'Legen Sie Ihren ersten Wissenseintrag an, um Informationen für Ihr Team und Auswertungen verfügbar zu machen.':'Passen Sie Ihre Suche an, um Ergebnisse zu sehen.'"></div></div></template>
+    </div>
+  </div>
+
+  <div x-show="open" x-cloak class="fixed inset-0 z-50"><div class="absolute inset-0 bg-black/60" @click="open=null"></div>
+    <div class="absolute right-0 top-0 h-full w-full max-w-xl bg-slate-950 border-l border-slate-800 shadow-2xl flex flex-col" @keydown.escape.window="if(open) open=null">
+      <div class="p-4 border-b border-slate-800 flex items-center justify-between"><div><div class="text-sm text-slate-400">Wissenseintrag</div><div class="font-semibold" x-text="open?.title"></div></div><button class="btn btn-ghost !py-1.5" @click="open=null">Schließen</button></div>
+      <div class="p-4 overflow-y-auto space-y-3 text-sm"><div class="flex gap-2"><span class="badge badge-slate" x-text="catLabel(open?.category)"></span><span class="text-slate-400 text-xs" x-text="'Aktualisiert: '+fmtDate(open?.updated_at||open?.created_at)"></span></div><div x-show="open?.source" class="text-xs text-slate-400">Quelle: <span class="text-slate-200" x-text="open?.source"></span></div><div class="whitespace-pre-wrap" x-text="open?.content"></div></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function kbPage(){return{
+  items:[], q:'', loading:true, busy:false, msg:'', err:false, tags:'', open:null,
+  entry:{title:'',content:'',category:'general',source:''},
+  catLabel(c){return ({general:'Allgemein',product:'Produkt',market:'Markt',scene:'Szene',trend:'Trend',artist:'Artist',event:'Event'})[c]||c||'—';},
+  notify(m,e=false){this.msg=m; this.err=e; toast(m,e?'error':'success'); setTimeout(()=>{if(this.msg===m)this.msg='';},5000);},
+  async loadAll(){this.loading=true; try{const r=await apiFetch('/api/knowledge?limit=300'); this.items=r.items||[];}catch(e){this.items=[]; this.notify('Einträge konnten nicht geladen werden: '+e.message,true);} this.loading=false;},
+  filtered(){const q=(this.q||'').toLowerCase(); if(!q) return this.items; return this.items.filter(e=>[e.title,e.content,e.category,e.source,JSON.stringify(e.tags_json||e.tags||[])].join(' ').toLowerCase().includes(q));},
+  async save(){if(!this.entry.title||!this.entry.content){this.notify('Bitte geben Sie mindestens einen Titel und einen Inhalt an.',true); return;} this.busy=true; try{const tags=this.tags.split(',').map(s=>s.trim()).filter(Boolean); await apiFetch('/api/knowledge',{method:'POST',body:JSON.stringify({...this.entry,tags})}); this.entry={title:'',content:'',category:'general',source:''}; this.tags=''; this.notify('Eintrag wurde gespeichert.'); await this.loadAll();}catch(e){this.notify('Eintrag konnte nicht gespeichert werden: '+e.message,true);} this.busy=false;},
+}}
+</script>
+{% endblock %}

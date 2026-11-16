@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Automatische Aufgaben | OMNI-CORE{% endblock %}
+{% block content %}
+<div x-data="jobsPage()" x-init="init()" class="space-y-4 max-w-7xl mx-auto">
+  <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
+    <div>
+      <h1 class="text-2xl md:text-3xl font-bold">Automatische Aufgaben</h1>
+      <p class="text-slate-400">Geplante und manuelle Hintergrundaufgaben (z. B. Importe, Analysen). Hier sehen Sie Status, Verlauf und können Aufgaben bei Bedarf neu starten oder abbrechen.</p>
+    </div>
+    <button @click="refresh()" class="btn btn-secondary">Aktualisieren</button>
+  </div>
+
+  <template x-if="msg"><div class="banner" :class="err?'banner-error':'banner-success'" x-text="msg"></div></template>
+
+  <div class="grid lg:grid-cols-2 gap-4">
+    <div class="card p-4 space-y-3">
+      <h2 class="font-semibold">Aufgabe manuell starten</h2>
+      <p class="text-xs text-slate-400">Startet eine Aufgabe sofort oder plant sie ein (je nach Typ). Nutzen Sie dies nur, wenn Sie wissen, welche Aufgabe benötigt wird.</p>
+      <div class="grid grid-cols-2 gap-3 text-sm">
+        <div class="col-span-2">
+          <label class="label">Aufgabentyp</label>
+          <select x-model="newJob.type" class="select"><option value="matterhorn_import">Lieferanten-Import (Matterhorn)</option><option value="trend_analysis">Trend-Analyse</option><option value="generic">Allgemeine Aufgabe</option></select>
+        </div>
+        <div>
+          <label class="label">Modus (bei Import)</label>
+          <select x-model="newJob.mode" class="select"><option value="safe">Sicher</option><option value="partial">Teilweise</option><option value="full">Vollständig</option><option value="dry_run">Testlauf</option></select>
+        </div>
+        <div class="flex items-end"><label class="flex items-center gap-2 text-sm pb-2"><input type="checkbox" x-model="newJob.async"> Im Hintergrund ausführen</label></div>
+      </div>
+      <button @click="createJob()" class="btn btn-primary" :disabled="busy">Aufgabe starten</button>
+    </div>
+
+    <div class="card p-4 space-y-3">
+      <h2 class="font-semibold">Zeitplan (Scheduler)</h2>
+      <p class="text-xs text-slate-400">Legen Sie fest, ob eine Aufgabe regelmäßig automatisch ausgeführt werden soll.</p>
+      <div class="grid grid-cols-2 gap-3 text-sm">
+        <div><label class="label">Aufgabentyp</label><input x-model="sched.job_type" class="input font-mono text-xs" placeholder="z. B. matterhorn_import"></div>
+        <div><label class="label">Intervall (Sekunden)</label><input x-model.number="sched.interval_seconds" type="number" min="60" class="input"><p class="help-text">z. B. 86400 = täglich, 3600 = stündlich.</p></div>
+        <label class="col-span-2 flex items-center gap-2"><input type="checkbox" x-model="sched.enabled"> Automatische Ausführung aktiv</label>
+      </div>
+      <button @click="saveScheduler()" class="btn btn-secondary" :disabled="busy">Zeitplan speichern</button>
+      <template x-if="(scheduler.items||[]).length===0"><div class="text-sm text-slate-400">Noch kein Zeitplan konfiguriert.</div></template>
+      <div class="space-y-1" x-show="(scheduler.items||[]).length"><template x-for="s in (scheduler.items||[])" :key="s.job_type"><div class="flex justify-between text-sm border-b border-slate-800 pb-1"><span x-text="s.job_type"></span><span class="badge" :class="uiBadgeClass(s.enabled?'active':'inactive')" x-text="s.enabled?'Aktiv':'Inaktiv'"></span></div></template></div>
+    </div>
+  </div>
+
+  <div class="card p-4">
+    <div class="flex items-center justify-between mb-2"><h2 class="font-semibold">Aufgabenverlauf</h2><span class="text-xs text-slate-400" x-text="(jobs.items||[]).length+' Einträge'"></span></div>
+    <div x-show="loading" class="space-y-2"><div class="skeleton h-10 w-full"></div><div class="skeleton h-10 w-full"></div></div>
+    <template x-if="!loading && (!jobs.items || jobs.items.length===0)"><div class="empty-state !py-8"><div class="icon">⚙️</div><div class="title">Keine Aufgaben vorhanden</div><div class="text-sm">Wenn Sie Aufgaben starten oder Zeitpläne aktivieren, erscheinen sie hier mit ihrem Status.</div></div></template>
+    <div class="overflow-auto" x-show="!loading && jobs.items && jobs.items.length">
+      <table class="tbl"><thead><tr><th>Aufgabe</th><th>Status</th><th>Versuche</th><th>Geplant/Start</th><th>Erstellt</th><th>Aktionen</th></tr></thead><tbody>
+        <template x-for="j in jobs.items" :key="j.id">
+          <tr>
+            <td><div class="font-medium" x-text="jobLabel(j.type)"></div><div class="text-[11px] text-slate-500 font-mono" x-text="j.id"></div></td>
+            <td><span class="badge" :class="uiBadgeClass(jobStatusKey(j.status))" x-text="uiStatusLabel(j.status)"></span></td>
+            <td x-text="(j.attempts||0)+' / '+(j.max_attempts||'—')"></td>
+            <td class="text-xs text-slate-400" x-text="fmtDate(j.run_at)"></td>
+            <td class="text-xs text-slate-400" x-text="fmtDate(j.created_at)"></td>
+            <td class="whitespace-nowrap space-x-1">
+              <button @click="jobAction(j.id,'retry')" class="btn btn-secondary !py-1 !px-2 !text-xs" :disabled="busy">Erneut versuchen</button>
+              <button @click="jobAction(j.id,'cancel')" class="btn btn-ghost !py-1 !px-2 !text-xs" :disabled="busy">Abbrechen</button>
+            </td>
+          </tr>
+        </template>
+      </tbody></table>
+    </div>
+  </div>
+
+  <div class="card p-4">
+    <h2 class="font-semibold mb-2">Letzte Import-Läufe</h2>
+    <template x-if="(importRuns||[]).length===0"><div class="text-sm text-slate-400">Keine Import-Läufe vorhanden.</div></template>
+    <div class="space-y-2" x-show="(importRuns||[]).length"><template x-for="r in (importRuns||[]).slice(0,10)" :key="r.id||r.started_at||Math.random()"><div class="flex items-center justify-between border-b border-slate-800 pb-2 text-sm"><div><div class="font-medium" x-text="'Import ('+(r.mode||'Standard')+')' "></div><div class="text-xs text-slate-500" x-text="fmtDate(r.started_at||r.created_at)"></div></div><span class="badge" :class="uiBadgeClass(r.status)" x-text="uiStatusLabel(r.status)"></span></div></template></div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function jobsPage(){return{
+  loading:false,busy:false,msg:'',err:false,jobs:{items:[]},scheduler:{items:[]},importRuns:[],
+  newJob:{type:'matterhorn_import',mode:'safe',async:true},
+  sched:{job_type:'matterhorn_import',enabled:false,interval_seconds:86400},
+  jobLabel(t){return ({matterhorn_import:'Lieferanten-Import (Matterhorn)', trend_analysis:'Trend-Analyse', generic:'Allgemeine Aufgabe'})[t]||t||'Aufgabe';},
+  jobStatusKey(s){const k=String(s||'').toLowerCase(); if(k==='succeeded'||k==='success') return 'active'; if(k==='failed') return 'error'; if(k==='running'||k==='queued'||k==='pending') return 'pending'; return k;},
+  async init(){ await this.refresh(); },
+  async refresh(){ this.loading=true; this.msg=''; this.err=false; try{ const [j,s,r]=await Promise.all([apiFetch('/api/jobs?limit=100'), apiFetch('/api/scheduler/config'), apiFetch('/api/import-runs?limit=20')]); this.jobs=j||{items:[]}; this.scheduler=s||{items:[]}; this.importRuns=Array.isArray(r)?r:(r.items||r.runs||[]); }catch(e){ this.msg='Daten konnten nicht geladen werden: '+e.message; this.err=true; } this.loading=false; },
+  async createJob(){ this.busy=true; this.msg=''; this.err=false; try{ let res; if(this.newJob.type==='matterhorn_import' && this.newJob.async){ res = await apiFetch('/api/import/matterhorn',{method:'POST',body:JSON.stringify({mode:this.newJob.mode, dry_run:this.newJob.mode==='dry_run', async_job:true})}); this.msg='Import-Aufgabe wurde eingeplant.'; } else { const payload = this.newJob.type==='matterhorn_import'?{mode:this.newJob.mode, dry_run:this.newJob.mode==='dry_run'}:{}; res = await apiFetch('/api/jobs',{method:'POST',body:JSON.stringify({type:this.newJob.type,payload})}); this.msg='Aufgabe wurde erstellt/gestartet.'; } toast(this.msg,'success'); await this.refresh(); }catch(e){ this.err=true; this.msg='Aufgabe konnte nicht gestartet werden: '+e.message; } this.busy=false; },
+  async saveScheduler(){ this.busy=true; this.msg=''; this.err=false; try{ const payload = this.sched.job_type==='matterhorn_import'?{mode:'safe'}:{}; await apiFetch('/api/scheduler/config',{method:'POST',body:JSON.stringify({job_type:this.sched.job_type,enabled:this.sched.enabled,interval_seconds:Number(this.sched.interval_seconds||3600),payload})}); this.msg='Zeitplan wurde gespeichert.'; toast(this.msg,'success'); await this.refresh(); }catch(e){ this.err=true; this.msg='Zeitplan konnte nicht gespeichert werden: '+e.message; } this.busy=false; },
+  async jobAction(id,action){ this.busy=true; this.msg=''; this.err=false; try{ await apiFetch('/api/jobs/'+id+'/'+action,{method:'POST'}); this.msg = action==='retry'?'Aufgabe wird erneut versucht.':'Aufgabe wurde abgebrochen (sofern möglich).'; toast(this.msg,'success'); await this.refresh(); }catch(e){ this.err=true; this.msg='Aktion nicht möglich: '+e.message; } this.busy=false; }
+}}
+</script>
+{% endblock %}
