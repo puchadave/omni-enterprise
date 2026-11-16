@@ -1,0 +1,86 @@
+name: omniroute-gateway-allinone
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  omniroute:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        OMNIROUTE_VERSION: ${OMNIROUTE_VERSION:-latest}
+    image: ${OMNIROUTE_IMAGE:-ghcr.io/local/omniroute-gateway-allinone}:${OMNIROUTE_TAG:-1.0.0}
+    container_name: ${COMPOSE_PROJECT_NAME:-omniroute-allinone}-gateway
+    restart: unless-stopped
+    init: true
+    environment:
+      TZ: ${TZ:-Europe/Berlin}
+      OMNIROUTE_SERVER_HOST: 0.0.0.0
+      OMNIROUTE_PORT: ${OMNIROUTE_PORT:-20128}
+      REQUIRE_API_KEY: ${REQUIRE_API_KEY:-true}
+      # Primary gateway API key
+      OMNIROUTE_API_KEY: ${OMNIROUTE_API_KEY:-sk-814c9467fd9c9314-a41c41-72e2d3b0}
+      # All known OmniRoute API keys (comma-separated) bundled for this all-in-one setup
+      OMNIROUTE_API_KEYS: ${OMNIROUTE_API_KEYS:-sk-814c9467fd9c9314-a41c41-72e2d3b0,test-key}
+      API_KEY: ${OMNIROUTE_API_KEY:-sk-814c9467fd9c9314-a41c41-72e2d3b0}
+      OMNIROUTE_STORAGE_ENCRYPTION_KEY: ${OMNIROUTE_STORAGE_ENCRYPTION_KEY:-__GENERATE__}
+      OMNIROUTE_TIMEOUT_MS: ${OMNIROUTE_TIMEOUT_MS:-1200}
+      OMNIROUTE_FAILOVER_TIMEOUT_MS: ${OMNIROUTE_FAILOVER_TIMEOUT_MS:-1400}
+      OMNIROUTE_RETRY_429: ${OMNIROUTE_RETRY_429:-true}
+      OMNIROUTE_RETRY_502: ${OMNIROUTE_RETRY_502:-true}
+      OMNIROUTE_RETRY_503: ${OMNIROUTE_RETRY_503:-true}
+      OMNIROUTE_CACHE_RESPONSES: ${OMNIROUTE_CACHE_RESPONSES:-true}
+      OMNIROUTE_CACHE_TTL_SECONDS: ${OMNIROUTE_CACHE_TTL_SECONDS:-300}
+    ports:
+      - "${SERVICE_BIND_HOST:-0.0.0.0}:${OMNIROUTE_PORT:-20128}:20128"
+    volumes:
+      - omniroute_config:/root/.omniroute
+      - omniroute_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:20128/v1/models >/dev/null 2>&1 || curl -fsS -H \"Authorization: Bearer ${OMNIROUTE_API_KEY:-sk-814c9467fd9c9314-a41c41-72e2d3b0}\" -o /dev/null http://127.0.0.1:20128/v1/models >/dev/null 2>&1 || node -e \"require('http').get({host:'127.0.0.1',port:20128,path:'/v1/models',headers:{Authorization:'Bearer ${OMNIROUTE_API_KEY:-sk-814c9467fd9c9314-a41c41-72e2d3b0}'}},r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))\" >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    networks: [omniroute-net]
+    logging: *default-logging
+
+  zerotier:
+    image: ${ZEROTIER_IMAGE:-zerotier/zerotier:latest}
+    container_name: ${COMPOSE_PROJECT_NAME:-omni}-zerotier
+    restart: unless-stopped
+    profiles: ["zt"]
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    volumes:
+      - zerotier_data:/var/lib/zerotier-one
+    environment:
+      ZT_NETWORK_ID: ${ZT_NETWORK_ID:-}
+    command: ["sh","-lc","zerotier-one -d; sleep 3; if [ -n \"${ZT_NETWORK_ID:-}\" ]; then zerotier-cli join ${ZT_NETWORK_ID} || true; fi; tail -f /dev/null"]
+    healthcheck:
+      test: ["CMD-SHELL", "zerotier-cli info >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  zerotier_data:
+    name: ${COMPOSE_PROJECT_NAME:-omni}_zerotier_data
+  omniroute_config:
+    name: ${COMPOSE_PROJECT_NAME:-omniroute-allinone}_config
+  omniroute_data:
+    name: ${COMPOSE_PROJECT_NAME:-omniroute-allinone}_data
+
+networks:
+  omniroute-net:
+    name: ${COMPOSE_PROJECT_NAME:-omniroute-allinone}_net
+    driver: bridge

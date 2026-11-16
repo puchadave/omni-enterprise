@@ -1,0 +1,203 @@
+{
+  "meta": {
+    "name": "OMNI-CORE OmniRoute Auto-Kombo Konfiguration",
+    "version": "1.0.0",
+    "generated_for": "omni-core-middleware",
+    "notes": [
+      "Kombos nutzen OmniRoute auto/* (Zero-Config, selbstlernend/adaptiv wo unterstützt) und persistente Fallback-Ketten.",
+      "Tatsächliche Verfügbarkeit von Modellen/Providern/Strategien hängt von der OmniRoute-Instanz & angebundenen Providern ab (keine erfundenen Modelle).",
+      "Verwaltungs-API (/api/combos, /api/config) erfordert Management-Token; Import je nach OmniRoute-Version anpassen."
+    ]
+  },
+  "task_model_mapping": {
+    "copilot_agent": "omnicore-copilot",
+    "chat_general": "auto/smart",
+    "reasoning_complex": "auto/smart",
+    "coding_rules": "auto/coding",
+    "content_bulk": "omnicore-content-bulk",
+    "seo_text": "auto/cheap",
+    "product_description": "omnicore-content-quality",
+    "translation": "auto/cheap",
+    "classification_extraction": "auto/fast",
+    "trend_analysis": "auto/smart",
+    "catalog_analysis_long_context": "omnicore-longcontext",
+    "vision_image_analysis": "auto/vision",
+    "image_generation": "auto/vision",
+    "photoshoot_product": "omnicore-photoshoot",
+    "photoshoot_with_model_identity": "omnicore-photoshoot-identity",
+    "critical_reliable": "omnicore-critical-fusion",
+    "budget_subscription_first": "omnicore-subscription-thrifty",
+    "realtime_fast": "auto/fast",
+    "offline_quota": "auto/offline"
+  },
+  "combos": [
+    {
+      "name": "omnicore-copilot",
+      "description": "KI-Copilot/Agent: beste Qualität, selbstlernend (smart) mit robuster Fallback-Kette.",
+      "strategy": "lkgp",
+      "fallback_strategy": "priority",
+      "targets": [
+        { "model": "auto/smart", "priority": 1 },
+        { "model": "auto", "priority": 2 },
+        { "model": "auto/cheap", "priority": 3 }
+      ],
+      "config": { "routerStrategy": "lkgp", "explorationRate": 0.1, "on_exhausted": "next", "on_error": "next" },
+      "use_cases": ["copilot", "agent", "tool_planning", "admin_chat"]
+    },
+    {
+      "name": "omnicore-content-bulk",
+      "description": "Massen-Content/SEO/Produkttexte: kostenoptimiert mit Quota/Headroom-Auswahl und Fallback.",
+      "strategy": "cost-optimized",
+      "fallback_strategy": "priority",
+      "targets": [
+        { "model": "auto/cheap", "priority": 1 },
+        { "model": "auto/thrifty", "priority": 2 },
+        { "model": "auto", "priority": 3 }
+      ],
+      "config": { "routerStrategy": "cost", "prefer_low_cost": true, "on_exhausted": "next", "on_error": "next" },
+      "use_cases": ["seo", "bulk_product_texts", "meta_descriptions", "translations_bulk"]
+    },
+    {
+      "name": "omnicore-content-quality",
+      "description": "Qualitativ hochwertige Produkt-/Marketingtexte: smart/auto, bei Bedarf günstigere Stufe.",
+      "strategy": "auto",
+      "targets": [
+        { "model": "auto/smart", "priority": 1 },
+        { "model": "auto", "priority": 2 },
+        { "model": "auto/cheap", "priority": 3 }
+      ],
+      "config": { "routerStrategy": "rules", "quality_bias": true },
+      "use_cases": ["premium_descriptions", "marketing_copy", "shopware_texts"]
+    },
+    {
+      "name": "omnicore-fast-classify",
+      "description": "Schnelle Klassifikation, Extraktion, Tagging, kurze Antworten.",
+      "strategy": "auto",
+      "targets": [
+        { "model": "auto/fast", "priority": 1 },
+        { "model": "auto", "priority": 2 }
+      ],
+      "config": { "routerStrategy": "latency", "max_latency_preference": true },
+      "use_cases": ["classification", "attribute_extraction", "tagging", "short_replies"]
+    },
+    {
+      "name": "omnicore-coding",
+      "description": "Code-, Regel- und Strukturaufgaben (Mapping/Logik/Transformationen).",
+      "strategy": "auto",
+      "targets": [
+        { "model": "auto/coding", "priority": 1 },
+        { "model": "auto/smart", "priority": 2 },
+        { "model": "auto", "priority": 3 }
+      ],
+      "config": { "routerStrategy": "rules", "task_fit": "coding" },
+      "use_cases": ["code_help", "mapping_logic", "data_transforms", "rule_generation"]
+    },
+    {
+      "name": "omnicore-longcontext",
+      "description": "Große Katalog-/Kontextanalysen: kontextoptimierte Auswahl mit Fallback.",
+      "strategy": "context-optimized",
+      "targets": [
+        { "model": "auto", "priority": 1 },
+        { "model": "auto/smart", "priority": 2 }
+      ],
+      "config": { "routerStrategy": "sla-aware", "prefer_large_context": true },
+      "use_cases": ["catalog_analysis", "large_reports", "long_documents"]
+    },
+    {
+      "name": "omnicore-vision",
+      "description": "Vision/Bildverständnis & Analyse (Produktbilder, QC-Prüfung).",
+      "strategy": "auto",
+      "targets": [
+        { "model": "auto/vision", "priority": 1 },
+        { "model": "auto/multimodal", "priority": 2 },
+        { "model": "auto", "priority": 3 }
+      ],
+      "config": { "routerStrategy": "rules", "capability": "vision" },
+      "use_cases": ["image_analysis", "product_fidelity_qc", "vision_tasks"]
+    },
+    {
+      "name": "omnicore-photoshoot",
+      "description": "KI-Produktbilder/Fotoshooting: vision/image-fähige Modelle, Qualität vor Kosten.",
+      "strategy": "priority",
+      "targets": [
+        { "model": "auto/vision", "priority": 1 },
+        { "model": "auto/smart", "priority": 2 },
+        { "model": "auto", "priority": 3 }
+      ],
+      "config": { "routerStrategy": "rules", "capability": "image_generation_or_vision", "notes": "Konkretes Bildmodell zusätzlich in Middleware einstellen (ai_model_photoshoot/image)." },
+      "use_cases": ["product_photography", "image_generation", "creative_shoots"]
+    },
+    {
+      "name": "omnicore-photoshoot-identity",
+      "description": "Fotoshooting mit Modell-Identitäten (Luna/Raven/Nyx etc.): Pipeline-geeignet, identitätstreue Prompts, Qualitätsfokus.",
+      "strategy": "pipeline",
+      "targets": [
+        { "step": "identity_prompt_compose", "model": "auto/smart", "description": "Identitäts- & Szene-Prompt aus Profil/Referenzen + Produktdaten bauen" },
+        { "step": "generate", "model": "auto/vision", "description": "Bildgenerierung mit Referenz/Identität (sofern Provider unterstützt)" },
+        { "step": "qc_describe", "model": "auto/vision", "description": "QC/Beschreibung & Konsistenzhinweise (keine erfundenen Scores ohne Scorer)" }
+      ],
+      "config": { "preserve_product_fidelity": true, "use_model_profiles": true, "fallback_model": "auto/smart" },
+      "use_cases": ["photoshoot_with_luna_raven_nyx", "identity_consistent_creatives", "product_model_photography"]
+    },
+    {
+      "name": "omnicore-critical-fusion",
+      "description": "Kritische/zuverlässige Ausgaben: Fusion/Panel + Fallback (falls Fusion nicht verfügbar).",
+      "strategy": "fusion",
+      "targets": [
+        { "model": "auto/smart", "role": "candidate" },
+        { "model": "auto", "role": "candidate" },
+        { "model": "auto/cheap", "role": "candidate" }
+      ],
+      "config": { "fallback_strategy": "lkgp", "routerStrategy": "sla-aware", "judge_model": "auto/smart" },
+      "use_cases": ["critical_answers", "high_reliability", "important_decisions"]
+    },
+    {
+      "name": "omnicore-subscription-thrifty",
+      "description": "Erst Abo/Plan-Quota, dann schrittweise günstig (Budget-schonend).",
+      "strategy": "priority",
+      "targets": [
+        { "model": "auto/subscription", "priority": 1 },
+        { "model": "auto/thrifty", "priority": 2 },
+        { "model": "auto/cheap", "priority": 3 },
+        { "model": "auto", "priority": 4 }
+      ],
+      "config": { "routerStrategy": "cost", "respect_subscription_quota": true },
+      "use_cases": ["budget_sensitive", "subscription_first", "background_jobs"]
+    },
+    {
+      "name": "omnicore-offline-resilient",
+      "description": "Maximale Verfügbarkeit bei knapper Quota/instabilen Providern.",
+      "strategy": "headroom",
+      "targets": [
+        { "model": "auto/offline", "priority": 1 },
+        { "model": "auto", "priority": 2 },
+        { "model": "auto/cheap", "priority": 3 }
+      ],
+      "config": { "routerStrategy": "rules", "prefer_headroom": true },
+      "use_cases": ["quota_pressure", "resilience", "batch_when_limited"]
+    },
+    {
+      "name": "omnicore-cache-optimized",
+      "description": "Wiederholte/ähnliche Prompts: Cache-Affinität maximieren.",
+      "strategy": "cache-optimized",
+      "targets": [
+        { "model": "auto", "priority": 1 },
+        { "model": "auto/smart", "priority": 2 }
+      ],
+      "config": { "routerStrategy": "rules", "cache_affinity": true },
+      "use_cases": ["repeated_prompts", "template_generation", "cost_speed_cache"]
+    },
+    {
+      "name": "omnicore-trend-analysis",
+      "description": "Trend-/Marktanalyse: smart/quality mit strukturierter Ausgabe.",
+      "strategy": "lkgp",
+      "targets": [
+        { "model": "auto/smart", "priority": 1 },
+        { "model": "auto", "priority": 2 },
+        { "model": "auto/fast", "priority": 3 }
+      ],
+      "config": { "routerStrategy": "score", "explorationRate": 0.05 },
+      "use_cases": ["trend_analysis", "market_insights", "bundle_suggestions"]
+    }
+  ]
+}
