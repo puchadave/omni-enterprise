@@ -21,3 +21,7 @@ __pycache__/
 *.sqlite
 *.db-journal
 .DS_Store
+
+# shopware generated integration secrets
+modules/shopware/integration/credentials.env
+modules/shopware/integration/live/

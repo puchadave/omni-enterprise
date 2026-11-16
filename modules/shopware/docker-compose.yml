@@ -23,11 +23,46 @@ services:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1/ >/dev/null 2>&1 || wget -q --spider http://127.0.0.1/ >/dev/null 2>&1 || exit 1"]
       interval: 20s
       timeout: 5s
-      retries: 20
+      retries: 30
       start_period: 60s
     networks:
       - shopware-net
 
+  # Auto-bootstrap: erstellt Shopware-Integration (API-Keys) und registriert Connection in Middleware,
+  # damit die Middleware immer eine Verbindung aufbauen kann (idempotent, best-effort).
+  shopware-bootstrap:
+    <<: *log
+    image: alpine:3.20
+    container_name: ${COMPOSE_PROJECT_NAME:-omni-shopware}-bootstrap
+    depends_on:
+      shopware:
+        condition: service_healthy
+    working_dir: /work
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./:/work
+    environment:
+      TZ: ${TZ:-Europe/Berlin}
+      SHOPWARE_CONTAINER: ${COMPOSE_PROJECT_NAME:-omni-shopware}-app
+      SHOPWARE_INTEGRATION_LABEL: ${SHOPWARE_INTEGRATION_LABEL:-omni-middleware}
+      SHOPWARE_APP_URL: ${SHOPWARE_APP_URL:-http://localhost:8088}
+      SHOPWARE_URL: ${SHOPWARE_URL:-http://localhost:8088}
+      SHOPWARE_PORT: ${SHOPWARE_PORT:-8088}
+      MIDDLEWARE_URL: ${MIDDLEWARE_URL:-}
+      MIDDLEWARE_INTERNAL_API_KEY: ${MIDDLEWARE_INTERNAL_API_KEY:-}
+      SHOPWARE_SALES_CHANNEL_ID: ${SHOPWARE_SALES_CHANNEL_ID:-}
+      BOOTSTRAP_RETRY_INTERVAL: ${BOOTSTRAP_RETRY_INTERVAL:-15}
+      BOOTSTRAP_MAX_ATTEMPTS: ${BOOTSTRAP_MAX_ATTEMPTS:-40}
+      BOOTSTRAP_WAIT_SEC: ${BOOTSTRAP_WAIT_SEC:-300}
+    entrypoint: ["/bin/sh", "-lc"]
+    command:
+      - >-
+        apk add --no-cache bash curl python3 docker-cli coreutils >/dev/null 2>&1 || true;
+        chmod +x scripts/*.sh 2>/dev/null || true;
+        ./scripts/bootstrap-loop.sh --auto --container "$${SHOPWARE_CONTAINER}" --label "$${SHOPWARE_INTEGRATION_LABEL}" --middleware-url "$${MIDDLEWARE_URL}" --shop-url "$${SHOPWARE_URL}" || echo "[bootstrap] finished with warnings (credentials/config ggf. in integration/)"
+    restart: "no"
+    networks:
+      - shopware-net
 
   zerotier:
     image: ${ZEROTIER_IMAGE:-zerotier/zerotier:latest}

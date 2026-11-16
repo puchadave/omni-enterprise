@@ -2,74 +2,72 @@
 
 Diese Anleitung verbindet **Shopware 6** (dieses Modul) mit der **Omni-Core Middleware** über die offizielle Admin-API (OAuth2 Integration). Keine Direktzugriffe auf die Shopware-DB.
 
-## Voraussetzungen
-- Shopware läuft und ist erreichbar (siehe `README.md` / `./start.sh up`).
-- Middleware läuft und ist erreichbar (z.B. `http://localhost:8002`, Health: `/healthz`).
-- Netzwerkpfad: Middleware muss `SHOPWARE_URL` erreichen (bei gemeinsamem Docker-Netz z.B. `http://shopware:80`, sonst Host/IP/ZeroTier-IP).
+## Auto-Integration (empfohlen, „immer verbindbar“)
+`./start.sh up` startet zusätzlich den Service **`shopware-bootstrap`**, der automatisch:
+1. wartet bis Shopware bereit ist,
+2. eine API-Integration (`omni-middleware`, Admin) erstellt **oder** bestehende gespeicherte Credentials wiederverwendet (idempotent),
+3. Credentials in `integration/credentials.env` + `.env` persistiert und `integration/live/middleware-connection.json` erzeugt,
+4. die Connection in der Middleware registriert (wenn `MIDDLEWARE_URL` erreichbar; best-effort mit Retries).
 
-## 1) Shopware starten
+**Wichtig – URLs richtig setzen (damit Middleware verbinden kann):**
+- `SHOPWARE_URL`: die Adresse, unter der die **Middleware** den Shop erreicht.
+  - gemeinsames Docker-Netz/Root-Compose: `http://shopware:80`
+  - getrennte Hosts/Module: `http(s)://<host-ip|dns|zt-ip>:8088`
+- `MIDDLEWARE_URL`: erreichbare Middleware (z.B. `http://middleware:8000` im gemeinsamen Netz oder `http://<host>:8002`).
+
+Manuell/erneut (idempotent): `./start.sh bootstrap` bzw. `./scripts/bootstrap-integration.sh --auto`.
+Logs: `./start.sh logs shopware-bootstrap`. Artefakte: `integration/credentials.env`, `integration/live/*` (gitignored).
+
+> Hinweis: Existiert die Integration in Shopware bereits, aber das Secret wurde nie gespeichert, ist es nicht erneut abrufbar. Lösung: Integration in Shopware löschen/rotieren und Bootstrap erneut ausführen.
+
+## Voraussetzungen
+- Shopware läuft und erreichbar (`./start.sh up`, `./scripts/wait-ready.sh`).
+- Middleware läuft/erreichbar (Health: `/healthz`), sofern Auto-Registrierung gewünscht.
+- Netzwerkpfad Middleware → `SHOPWARE_URL` offen (Docker-Netz/Host/ZT, Firewall/Ports).
+
+## Manuelle Schritte (alternativ/Ergänzung)
+
+### 1) Shopware starten
 ```bash
-cd modules/shopware
-cp .env.example .env   # Ports/URL ggf. anpassen
+cp .env.example .env   # Ports/URLs anpassen
 ./start.sh up
 ./scripts/wait-ready.sh
 ```
-- Dev/Demo (dockware): Storefront/Admin je nach Image unter `http://<host>:8088` bzw. `/admin`. Default-Admin (imageabhängig, nur Dev): oft `admin` / `shopware` – **in Prod ändern**.
+Dev/Demo (dockware): Storefront/Admin unter `http://<host>:8088` bzw. `/admin` (Default imageabhängig, oft `admin`/`shopware` – **nur Dev, in Prod ändern**).
 
-## 2) API-Integration in Shopware anlegen
-Integration mit Admin-API-Zugriff erzeugen; **Access key ID** = `SHOPWARE_CLIENT_ID`, **Secret access key** = `SHOPWARE_CLIENT_SECRET` (Secret nur einmal sichtbar → sicher speichern).
+### 2) API-Integration anlegen (falls nicht automatisch)
+**Access key ID = `SHOPWARE_CLIENT_ID`, Secret access key = `SHOPWARE_CLIENT_SECRET`** (sicher speichern).
+- Konsole (empfohlen): `./scripts/create-integration.sh console --label omni-middleware`
+- Admin UI: `Einstellungen > System > Integrationen > Integration anlegen` (Admin-API-Zugriff)
+- Admin-API: `./scripts/create-integration.sh api --url http://localhost:8088 --admin-user admin --admin-pass shopware --label omni-middleware`
 
-### Option A – per Konsole (empfohlen)
-```bash
-./scripts/create-integration.sh console --label omni-middleware
-# Ausgabe enthält Access key ID / Secret access key
-```
+### 3) Sales Channel ID ermitteln (optional/je nach Flow)
+Admin UI `Verkaufskanäle` oder `GET /api/sales-channel` (authentifiziert) → `SHOPWARE_SALES_CHANNEL_ID`.
 
-### Option B – per Admin UI
-`Einstellungen > System > Integrationen > Integration anlegen` → Name vergeben, „Administrator“-Rechte (oder minimal nötige Rechte) aktivieren → Schlüssel notieren.
-
-### Option C – per Admin-API Script
-```bash
-./scripts/create-integration.sh api --url http://localhost:8088 --admin-user admin --admin-pass shopware --label omni-middleware
-```
-
-## 3) Sales Channel ID ermitteln
-Benötigt für Storefront-Kontext/Zuordnung (falls Middleware/Flow es erfordert):
-- Admin UI: `Verkaufskanäle` → Kanal öffnen → ID aus URL/Details, oder
-- API: `GET /api/sales-channel` (authentifiziert) und passende ID wählen.
-
-## 4) Connection in der Middleware registrieren
-Werte in `modules/shopware/.env` setzen (`SHOPWARE_URL`, `SHOPWARE_CLIENT_ID`, `SHOPWARE_CLIENT_SECRET`, `SHOPWARE_SALES_CHANNEL_ID`, `MIDDLEWARE_URL`) und registrieren:
+### 4) Connection in Middleware registrieren
+`.env` setzen (`SHOPWARE_URL`, `SHOPWARE_CLIENT_ID/SECRET`, `SALES_CHANNEL_ID`, `MIDDLEWARE_URL`) dann:
 ```bash
 ./scripts/register-connection.sh
+# oder: curl -X POST $MIDDLEWARE_URL/api/shopware/connections -H 'Content-Type: application/json' -d @integration/middleware-connection.example.json
 ```
-Oder manuell:
+
+### 5) Verbindung testen & nutzen
 ```bash
-curl -sS -X POST "$MIDDLEWARE_URL/api/shopware/connections" \
-  -H 'Content-Type: application/json' \
-  -d @integration/middleware-connection.example.json
+curl -sS -X POST "$MIDDLEWARE_URL/api/shopware/connections/<ID>/test"
+# UI: $MIDDLEWARE_URL/ui/shopware
 ```
-Relevante Middleware-Endpunkte (siehe Implementierung): `POST/GET /api/shopware/connections`, `POST /api/shopware/connections/{id}/test`, `.../mappings`, `POST/GET /api/shopware/export`, `/ui/shopware`.
+Middleware-Endpunkte: `POST/GET /api/shopware/connections`, `POST /api/shopware/connections/{id}/test`, `.../mappings`, `POST/GET /api/shopware/export`, `/ui/shopware`.
 
-## 5) Verbindung testen & Export
-```bash
-# Connection testen (ID aus Registrierung)
-curl -sS -X POST "$MIDDLEWARE_URL/api/shopware/connections/<CONNECTION_ID>/test"
-# UI
-open "$MIDDLEWARE_URL/ui/shopware"
-```
-Danach Produkte/Mappings/Export über Middleware-UI oder -API ausführen (nur mit gültigen Credentials und bestätigtem Ziel).
+## Netzwerk-Hinweise
+- **Gemeinsames Netz:** `http://shopware:80` als `SHOPWARE_URL`.
+- **Separat/ZeroTier:** erreichbare IP/Host/ZT-IP+Port, `SERVICE_BIND_HOST`/Firewall/ZT-Flow-Rules passend, in Prod `https://` (TLS/Edge).
 
-## Netzwerk-Hinweise (Standalone vs. gemeinsam)
-- **Gemeinsames Compose/Netz (empfohlen):** Middleware erreicht Shopware unter `http://shopware:80` (Service-Name) → `SHOPWARE_URL=http://shopware:80`.
-- **Separate Module/Hosts:** erreichbare IP/Host/ZeroTier-IP + Port verwenden (z.B. `http://192.168.178.x:8088` oder `http://<zt-ip>:8088`), `SERVICE_BIND_HOST`/Firewall/ZT-Flow-Rules passend setzen.
-- **TLS:** In Prod `https://`-Shop-URL verwenden (Reverse Proxy/Edge).
-
-## Konfigurationsdateien (Vorlagen)
-- `integration/connector.json.example` – Connector-Konfigurationsvorlage (ohne Secrets committen)
-- `integration/middleware-connection.example.json` – Payload für Middleware-Connection
+## Konfigurationsdateien
+- `integration/connector.json.example` – Connector-Vorlage (ohne Secrets committen)
+- `integration/middleware-connection.example.json` – Request-Payload Vorlage
+- `integration/credentials.env`, `integration/live/*` – **generiert, gitignored**
 
 ## Sicherheit & Betrieb
-- Secrets (`CLIENT_SECRET`, API-Keys) nie committen/teilen; in Prod rotieren und Rechte minimal halten.
+- Secrets nie committen/teilen; in Prod rotieren, Rechte minimal halten.
 - Keine Shopware-DB-Direktzugriffe durch Middleware; nur offizielle API.
-- Vor Produktivschaltung: gültige Credentials, korrektes Sales-Channel/Steuer/Währung-Mapping, Test-Export/Order-Flow verifizieren.
+- Vor Produktivbetrieb: gültige Credentials, korrektes Sales-Channel/Steuer/Währung-Mapping, Test-Export/Order-Flow verifizieren.

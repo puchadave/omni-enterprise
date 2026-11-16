@@ -1,0 +1,4 @@
+
+# generated integration credentials/configs (secrets)
+integration/credentials.env
+integration/live/
