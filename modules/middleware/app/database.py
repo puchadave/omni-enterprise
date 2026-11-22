@@ -8297,14 +8297,26 @@ async def mcc_create_export_job(marketplace_id: str, mode: str, requested_by: st
         return _mcc_decode(dict(row)) if row else {"id":jid}
 
 
+_MCC_EXPORT_JOB_ALLOWED_FIELDS = {
+    "status","requested_by","approved_by","approved_at","total_items","success_items","failed_items",
+    "skipped_items","payload_json","result_json","error_message","started_at","finished_at","updated_at",
+}
+
 async def mcc_update_export_job(job_id: str, **fields: Any) -> dict[str, Any] | None:
-    if not fields: return await mcc_get_export_job(job_id)
-    now=utc_now(); fields["updated_at"]=now
+    if not fields:
+        return await mcc_get_export_job(job_id)
+    now = utc_now()
+    fields["updated_at"] = now
+    safe_fields = {k: v for k, v in fields.items() if k in _MCC_EXPORT_JOB_ALLOWED_FIELDS}
+    if not safe_fields:
+        return await mcc_get_export_job(job_id)
     if uses_postgres():
         sets=[]; vals=[]; i=1
-        for k,v in fields.items():
-            if k.endswith('_json') or k in {'payload_json','result_json'}: sets.append(f"{k}=${i}::jsonb"); vals.append(_json_dump(v,{} if k!='items' else []))
-            else: sets.append(f"{k}=${i}"); vals.append(v)
+        for k,v in safe_fields.items():
+            if k in {"payload_json","result_json"}:
+                sets.append(f"{k}=${i}::jsonb"); vals.append(_json_dump(v,{}))
+            else:
+                sets.append(f"{k}=${i}"); vals.append(v)
             i+=1
         vals.append(job_id)
         pool=await get_pg_pool()
@@ -8313,13 +8325,16 @@ async def mcc_update_export_job(job_id: str, **fields: Any) -> dict[str, Any] | 
             row=await conn.fetchrow("SELECT * FROM marketplace_export_jobs WHERE id=$1", job_id)
         return _mcc_decode(dict(row)) if row else None
     sets=[]; vals=[]
-    for k,v in fields.items():
-        if k.endswith('_json') or k in {'payload_json','result_json'}: v=_json_dump(v,{} if k!='items' else [])
+    for k,v in safe_fields.items():
+        if k in {"payload_json","result_json"}:
+            v=_json_dump(v,{})
         sets.append(f"{k}=?"); vals.append(v)
     vals.append(job_id)
     async with get_connection() as db:
-        await db.execute(f"UPDATE marketplace_export_jobs SET {', '.join(sets)} WHERE id=?", tuple(vals)); await db.commit()
-        cur=await db.execute("SELECT * FROM marketplace_export_jobs WHERE id=?", (job_id,)); row=await cur.fetchone(); await cur.close()
+        await db.execute(f"UPDATE marketplace_export_jobs SET {', '.join(sets)} WHERE id=?", tuple(vals))
+        await db.commit()
+        cur=await db.execute("SELECT * FROM marketplace_export_jobs WHERE id=?", (job_id,))
+        row=await cur.fetchone(); await cur.close()
         return _mcc_decode(dict(row)) if row else None
 
 

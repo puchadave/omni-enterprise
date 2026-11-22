@@ -293,7 +293,7 @@ class ShopifyConnector(BaseMarketplaceConnector):
 
     def _headers(self) -> dict[str, str]:
         token = self.config.get("access_token") or self.config.get("api_token") or ""
-        return {"X-Shopify-Access-Token": token, "Content-Type": "application/json", "Accept": "application/json"}
+        return {"X-Shopify-Access-Token": str(token), "Content-Type": "application/json", "Accept": "application/json"}
 
     async def connect(self) -> dict[str, Any]:
         return await self.health()
@@ -308,11 +308,13 @@ class ShopifyConnector(BaseMarketplaceConnector):
             async with httpx.AsyncClient(timeout=20.0) as client:
                 r = await client.get(f"{base}/admin/api/2024-10/shop.json", headers=self._headers())
             if r.status_code == 200:
-                data = r.json().get("shop", {})
+                body = r.json() if r.headers.get("content-type","",).startswith("application/json") else {}
+                data = body.get("shop", {}) if isinstance(body, dict) else {}
                 return {"status": "connected", "connector": self.connector_type, "shop": data.get("name"), "domain": data.get("myshopify_domain")}
-            return {"status": "error", "connector": self.connector_type, "http_status": r.status_code, "message": r.text[:300]}
+            return {"status": "error", "connector": self.connector_type, "http_status": r.status_code, "message": "Shopify API request failed"}
         except Exception as e:
-            return {"status": "error", "connector": self.connector_type, "message": str(e)}
+            logger.warning("Shopify health check failed: %s", type(e).__name__)
+            return {"status": "error", "connector": self.connector_type, "message": "Connector health check failed"}
 
     async def get_products(self, limit: int = 50) -> list[dict[str, Any]]:
         base = self._base()
@@ -340,7 +342,8 @@ class ShopifyConnector(BaseMarketplaceConnector):
         async with httpx.AsyncClient(timeout=30.0) as client:
             r = await client.post(f"{base}/admin/api/2024-10/products.json", headers=self._headers(), json={"product": product})
             if r.status_code >= 300:
-                return {"ok": False, "status_code": r.status_code, "error": r.text[:500]}
+                logger.warning("Shopify create_listing failed: status=%s", r.status_code)
+                return {"ok": False, "status_code": r.status_code, "error": "Shopify API request failed"}
             data = r.json().get("product", {})
             return {"ok": True, "external_id": str(data.get("id")), "raw": data}
 
@@ -352,7 +355,8 @@ class ShopifyConnector(BaseMarketplaceConnector):
         async with httpx.AsyncClient(timeout=30.0) as client:
             r = await client.put(f"{base}/admin/api/2024-10/products/{external_id}.json", headers=self._headers(), json={"product": payload})
             if r.status_code >= 300:
-                return {"ok": False, "status_code": r.status_code, "error": r.text[:500]}
+                logger.warning("Shopify create_listing failed: status=%s", r.status_code)
+                return {"ok": False, "status_code": r.status_code, "error": "Shopify API request failed"}
             data = r.json().get("product", {})
             return {"ok": True, "external_id": str(data.get("id")), "raw": data}
 

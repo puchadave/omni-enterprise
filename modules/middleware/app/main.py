@@ -2241,6 +2241,11 @@ async def mcc_api_upsert_marketplace(payload: MarketplaceUpsertRequest, principa
     creds = data.pop("credentials", {})
     if creds:
         data["credentials_json"] = creds
+    # Never persist raw secrets into config_json; credentials_json is stored separately and masked on read.
+    cfg = data.get("config_json") or {}
+    for k in ("access_token","api_token","client_secret","secret","password"):
+        cfg.pop(k, None)
+    data["config_json"] = cfg
     mp = await mcc_upsert_marketplace(data)
     await mcc_audit("marketplace.upsert", marketplace_id=mp["id"], actor=str(principal.get("username") or principal.get("user_id") or "api"), message=f"Marketplace {mp.get('name')} upserted", details={"connector_type": mp.get("connector_type")})
     await write_log("INFO", "mcc_marketplace_upsert", f"Marketplace {mp.get('name')} upserted", {"marketplace_id": mp["id"]})
@@ -2370,7 +2375,7 @@ async def mcc_api_export_start(payload: MarketplaceExportRequest, principal: dic
     by_sku = {p.get("sku"): p for p in products}
 
     for sel in selected:
-        sku = sel.get("product_sku")
+        sku = str(sel.get("product_sku") or "")
         product = by_sku.get(sku)
         if not product:
             skipped += 1
@@ -2384,7 +2389,7 @@ async def mcc_api_export_start(payload: MarketplaceExportRequest, principal: dic
             continue
 
         if mode == EXPORT_DRY_RUN:
-            await mcc_add_export_item(job["id"], payload.marketplace_id, sku, status="dry_run", request_json={"sku": sku, "title": product.get("title")}, response_json={"validation": "ok", "eligible": sel.get("eligible"), "score": sel.get("score")})
+            await mcc_add_export_item(job["id"], payload.marketplace_id, sku, status="dry_run", request_json={"sku": sku, "title": product.get("title")}, response_json={"validation": "ok", "eligible": bool(sel.get("eligible")), "score": sel.get("score")})
             success += 1
             item_results.append({"sku": sku, "status": "dry_run", "score": sel.get("score")})
             continue
@@ -2398,7 +2403,13 @@ async def mcc_api_export_start(payload: MarketplaceExportRequest, principal: dic
             continue
 
         # real export path - only implemented connectors; no fake success
-        req = {"title": product.get("title"), "body_html": product.get("description") or "", "vendor": (product.get("raw") or {}).get("brand") or "Omni", "status": "draft" if mode == EXPORT_TEST else "active", "variants": [{"price": str(product.get("price") or 0), "sku": sku, "inventory_quantity": int(float(product.get("stock") or 0))}]}
+        req = {
+            "title": product.get("title"),
+            "body_html": product.get("description") or "",
+            "vendor": ((product.get("raw") or {}).get("brand") or "Omni"),
+            "status": "draft" if mode == EXPORT_TEST else "active",
+            "variants": [{"price": str(product.get("price") or 0), "sku": sku, "inventory_quantity": int(float(product.get("stock") or 0))}],
+        }
         try:
             existing = await mcc_get_marketplace_product(payload.marketplace_id, sku)
             ext_id = (existing or {}).get("external_product_id")
@@ -2410,28 +2421,29 @@ async def mcc_api_export_start(payload: MarketplaceExportRequest, principal: dic
                 action = "create"
             if res.get("ok"):
                 external_id = str(res.get("external_id") or ext_id or "")
-                # verify status via connector API if possible
                 listing_status = LISTING_ERROR
-                status_raw = {}
+                status_raw: dict[str, Any] = {}
                 if external_id and hasattr(connector, "get_listing_status"):
                     try:
                         status_raw = await connector.get_listing_status(external_id)
-                        listing_status = status_raw.get("status") or LISTING_ERROR
-                    except Exception as e:
-                        status_raw = {"status_check_error": str(e)}
+                        listing_status = str(status_raw.get("status") or LISTING_ERROR)
+                    except Exception:
+                        logger.exception("Listing status check failed for marketplace=%s sku=%s", payload.marketplace_id, sku)
+                        status_raw = {"status_check_error": "status_check_failed"}
                         listing_status = LISTING_ERROR
                 await mcc_upsert_marketplace_product(payload.marketplace_id, sku, external_product_id=external_id, listing_status=listing_status, sync_status="exported", last_error="", last_exported_at=utc_now(), canonical_product_json=product)
-                await mcc_add_export_item(job["id"], payload.marketplace_id, sku, status="success", action=action, external_id=external_id, request_json=req, response_json={"export": res, "listing_status": status_raw})
+                await mcc_add_export_item(job["id"], payload.marketplace_id, sku, status="success", action=action, external_id=external_id, request_json={"sku": sku, "mode": mode, "action": action}, response_json={"export_ok": True, "external_id": external_id, "listing_status": status_raw})
                 success += 1
                 item_results.append({"sku": sku, "status": "success", "action": action, "external_id": external_id, "listing_status": listing_status})
             else:
-                err = str(res.get("error") or res.get("message") or "export failed")[:2000]
+                err = str(res.get("error") or res.get("message") or "export failed")[:500]
                 failed += 1
                 await mcc_upsert_marketplace_product(payload.marketplace_id, sku, listing_status=LISTING_ERROR, last_error=err)
-                await mcc_add_export_item(job["id"], payload.marketplace_id, sku, status="failed", action="export", request_json=req, response_json=res, error_message=err)
+                await mcc_add_export_item(job["id"], payload.marketplace_id, sku, status="failed", action="export", request_json={"sku": sku, "mode": mode}, response_json={"export_ok": False, "status_code": res.get("status_code")}, error_message=err)
                 item_results.append({"sku": sku, "status": "failed", "error": err})
-        except Exception as e:
-            err = str(e)[:2000]
+        except Exception:
+            logger.exception("Marketplace export failed for marketplace=%s sku=%s", payload.marketplace_id, sku)
+            err = "export_failed"
             failed += 1
             await mcc_upsert_marketplace_product(payload.marketplace_id, sku, listing_status=LISTING_ERROR, last_error=err)
             await mcc_add_export_item(job["id"], payload.marketplace_id, sku, status="failed", error_message=err)
