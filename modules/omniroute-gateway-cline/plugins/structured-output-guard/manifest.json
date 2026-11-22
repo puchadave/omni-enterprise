@@ -1,0 +1,1 @@
+{"id":"structured-output-guard","version":"1.0.0","description":"Validiert/repariert strukturierte JSON-Ausgaben (Scorecards/Entscheidungen)","hooks":["post_process"],"config":{"enabled_for":["omnicore-sales-product-intelligence","long-context-analysis"],"max_repair_attempts":2,"strict":false}}

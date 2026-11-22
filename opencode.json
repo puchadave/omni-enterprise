@@ -1,0 +1,61 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "instructions": ["AGENTS.md"],
+  "provider": {
+    "omniroute": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "OmniRoute Gateway",
+      "options": {
+        "baseURL": "{env:OMNIROUTE_URL}",
+        "apiKey": "{env:OMNIROUTE_API_KEY}"
+      },
+      "models": {
+        "coding-primary": { "name": "T1 Coding Primary (OmniRoute combo)", "id": "coding-primary" },
+        "coding-review": { "name": "T3 Independent Review (OmniRoute combo)", "id": "coding-review" },
+        "architecture-reasoning": { "name": "T2 Architecture/Reasoning (OmniRoute combo)", "id": "architecture-reasoning" },
+        "long-context-analysis": { "name": "Long Context Analysis (OmniRoute combo)", "id": "long-context-analysis" },
+        "t0-fast-trivial": { "name": "T0 Fast/Trivial (OmniRoute combo)", "id": "t0-fast-trivial" },
+        "omnicore-sales-product-intelligence": { "name": "Sales Product Intelligence (OmniRoute combo)", "id": "omnicore-sales-product-intelligence" },
+        "omnicore-vision": { "name": "Vision/Multimodal", "id": "omnicore-vision" },
+        "omnicore-content-quality": { "name": "Content/SEO Quality", "id": "omnicore-content-quality" }
+      }
+    }
+  },
+  "model": "omniroute/coding-primary",
+  "small_model": "omniroute/t0-fast-trivial",
+  "agent": {
+    "planner": {
+      "description": "T2 Planung/Architektur: Analyse, Task-Graph, kein Direkt-Write ohne Umsetzungsschritt",
+      "model": "omniroute/architecture-reasoning",
+      "prompt": "Du bist Planner/Architect. Analysiere Repo/Anforderungen, liefere klaren Plan/Task-Graph, Risiken, Akzeptanzkriterien. Keine Secrets, keine destruktiven Aktionen ohne Freigabe."
+    },
+    "coder": {
+      "description": "T1 Umsetzung: implementiert, testet, folgt Konventionen",
+      "model": "omniroute/coding-primary",
+      "prompt": "Du bist Coder. Implementiere präzise, sicher, getestet. Keine Platzhalter in kritischen Pfaden, respektiere Export-/Paid-Gates und bestehende Patterns."
+    },
+    "reviewer": {
+      "description": "T3 unabhängiges Review: Diff/Risiko/Security/Regression, anderes Profil",
+      "model": "omniroute/coding-review",
+      "prompt": "Du bist unabhängiger Reviewer. Prüfe Diff auf Korrektheit, Sicherheit, Secrets/PII, Regressionen und Gate-Compliance. Nenne konkrete Befunde/Fixes."
+    },
+    "sales-intel": {
+      "description": "Verkaufs-KI: Produktanalyse (Trend/Social/Finanzen/A-B), Freigabe-Empfehlung, Modifikationen",
+      "model": "omniroute/omnicore-sales-product-intelligence",
+      "prompt": "Du bist Sales/Product-Intelligence Agent. Liefere erklärbare Scorecards und konservative Freigabeentscheidungen (kein Export ohne approved + paid-Guard)."
+    }
+  },
+  "mcp": {
+    "shopware": {
+      "type": "local",
+      "command": ["npx", "-y", "@shopware/mcp-server"],
+      "environment": {
+        "SHOPWARE_URL": "{env:SHOPWARE_URL}",
+        "SHOPWARE_ACCESS_KEY_ID": "{env:SHOPWARE_ACCESS_KEY_ID}",
+        "SHOPWARE_SECRET_ACCESS_KEY": "{env:SHOPWARE_SECRET_ACCESS_KEY}",
+        "SHOPWARE_MCP_READ_ONLY": "{env:SHOPWARE_MCP_READ_ONLY}"
+      },
+      "enabled": false
+    }
+  }
+}

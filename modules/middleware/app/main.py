@@ -105,6 +105,12 @@ from services.shopware_connection_manager import ShopwareConnectionManager
 from services.shopware_mapping_engine import MappingEngine, FieldMapping, MAPPING_DIRECT, get_default_mappings
 from services.shopware_export_manager import ExportManager
 from services.shopware_description_engine import DescriptionEngine, SEOCenter
+from services.catalog_intelligence import merge_config, score_product, select_products, build_report
+from database import (
+    pi_save_scoring_config, pi_get_default_scoring_config, pi_save_product_score,
+    pi_create_selection_run, pi_finish_selection_run, pi_save_selection_item, pi_get_selection_run,
+    pi_list_selection_runs, pi_create_export_job, pi_update_export_job,
+)
 from services.competitor_provider import provider_registry
 from services.competitor_matching import ProductMatchingEngine
 from services.competitor_pricing import DynamicPricingEngine
@@ -187,6 +193,10 @@ RBAC_RULES: list[tuple[str, tuple[str, ...], str]] = [
     ("POST", ("/api/competitor/",), "competitor.manage"),
     ("GET", ("/api/sales/overview", "/api/sales/product-scores"), "products.read"),
     ("GET", ("/api/sales/pricing-recommendations",), "pricing.read"),
+    ("GET", ("/api/product-intelligence/",), "products.read"),
+    ("POST", ("/api/product-intelligence/catalog/analyze", "/api/product-intelligence/catalog/score", "/api/product-intelligence/catalog/select", "/api/product-intelligence/catalog/preview", "/api/product-intelligence/catalog/exclusions"), "products.read"),
+    ("POST", ("/api/product-intelligence/shopify/dry-run",), "exports.execute"),
+    ("POST", ("/api/product-intelligence/",), "products.write"),
     ("GET", ("/api/scene-intelligence/", "/api/news/", "/ui/news-events", "/ui/trend-intelligence"), "trends.read"),
     ("POST", ("/api/news/",), "trends.manage"),
     ("GET", ("/api/knowledge", "/ui/knowledge-base"), "system.read"),
@@ -3732,6 +3742,242 @@ async def api_test_connector(connector_id: str, user: dict[str, Any] = Depends(r
         "message": health.message,
         "details": health.details,
     }
+
+
+
+# --- Product Intelligence / Sales AI / Export Gate (new software attributes) ---
+
+class ProductIntelligenceAnalyzeRequest(BaseModel):
+    sku: str = Field(min_length=1)
+    channel: str = Field(default="shopware")
+    signals: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class ProductIntelligenceApprovalRequest(BaseModel):
+    sku: str = Field(min_length=1)
+    channel: str = Field(default="shopware")
+    decision: str = Field(default="review_required")  # approved|rejected|hold|review_required
+    reasons: list[Any] = Field(default_factory=list)
+    score: float | None = None
+    modifications: dict[str, Any] | list[Any] = Field(default_factory=dict)
+    expires_at: str | None = None
+
+
+class MarketSignalRequest(BaseModel):
+    sku: str = ""
+    category: str = ""
+    source: str = Field(min_length=1)
+
+
+class PICatalogAnalyzeRequest(BaseModel):
+    config: dict[str, Any] = Field(default_factory=dict)
+    limit: int = Field(default=5000, ge=1, le=20000)
+    save: bool = True
+
+
+class PICatalogSelectRequest(BaseModel):
+    config: dict[str, Any] = Field(default_factory=dict)
+    limit: int = Field(default=5000, ge=1, le=20000)
+    save: bool = True
+    created_by: str = Field(default="", max_length=120)
+
+
+class PIExportDryRunRequest(BaseModel):
+    selection_run_id: str = Field(default="", max_length=120)
+    config: dict[str, Any] = Field(default_factory=dict)
+    idempotency_key: str = Field(default="", max_length=200)
+    target: str = Field(default="shopify", max_length=64)
+    metric: str = ""
+    value: float = 0.0
+    period: str = ""
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+async def _pi_load_products(limit: int) -> list[dict[str, Any]]:
+    return await list_products(limit=limit, offset=0)
+
+
+def _pi_mark_duplicates(products: list[dict[str, Any]]) -> None:
+    seen: dict[str, str] = {}
+    for p in products:
+        sku = str(p.get("sku") or "").strip().lower()
+        ean = str(p.get("ean") or p.get("barcode") or "").strip().lower()
+        title = str(p.get("title") or "").strip().lower()
+        keys = [k for k in [f"sku:{sku}" if sku else "", f"ean:{ean}" if ean else "", f"title:{title}" if title else ""] if k]
+        dup = False
+        for k in keys:
+            if k in seen and seen[k] != sku:
+                dup = True; break
+        for k in keys: seen.setdefault(k, sku)
+        p["_is_duplicate"] = dup
+
+
+@app.get("/api/product-intelligence/config/default")
+async def pi_default_config(user: dict[str, Any] = Depends(require_permission("products.read"))):
+    stored = await pi_get_default_scoring_config()
+    cfg = merge_config((stored or {}).get("config_json") if stored else None)
+    return {"status":"ok","config":cfg,"stored":bool(stored)}
+
+
+@app.post("/api/product-intelligence/config")
+async def pi_save_config(payload: dict[str, Any] = Body(default_factory=dict), user: dict[str, Any] = Depends(require_permission("system.configure"))):
+    name=str(payload.get("name") or "default")
+    cfg=merge_config(payload.get("config") if isinstance(payload.get("config"), dict) else payload)
+    row=await pi_save_scoring_config(name=name, config=cfg, is_default=bool(payload.get("is_default", True)))
+    return {"status":"ok","config":cfg,"saved":row}
+
+
+@app.post("/api/product-intelligence/catalog/analyze")
+async def pi_catalog_analyze(req: PICatalogAnalyzeRequest, user: dict[str, Any] = Depends(require_permission("products.read"))):
+    cfg = merge_config(req.config)
+    products = await _pi_load_products(req.limit)
+    _pi_mark_duplicates(products)
+    cat_counts: dict[str, int] = {}
+    for p in products:
+        c = str(p.get("category") or "uncategorized"); cat_counts[c] = cat_counts.get(c, 0) + 1
+    scored = [score_product(p, cfg, cat_counts) for p in products]
+    if req.save:
+        run_id = str(uuid.uuid4())
+        for s in scored[:5000]: await pi_save_product_score(run_id, s, cfg)
+    avg = round(sum(s["score"] for s in scored) / len(scored), 2) if scored else 0
+    eligible = sum(1 for s in scored if s.get("eligible"))
+    return {"status":"ok","summary":{"total":len(scored),"eligible":eligible,"excluded":len(scored)-eligible,"average_score":avg},"category_distribution":cat_counts,"exclusion_counts":{e:sum(1 for s in scored for ex in s.get("exclusions",[]) if ex==e) for e in sorted({ex for s in scored for ex in s.get("exclusions",[])})},"config":cfg,"sample":scored[:50]}
+
+
+@app.post("/api/product-intelligence/catalog/score")
+async def pi_catalog_score(req: PICatalogAnalyzeRequest, user: dict[str, Any] = Depends(require_permission("products.read"))):
+    return await pi_catalog_analyze(req)
+
+
+@app.post("/api/product-intelligence/catalog/select")
+async def pi_catalog_select(req: PICatalogSelectRequest, user: dict[str, Any] = Depends(require_permission("products.read"))):
+    cfg = merge_config(req.config)
+    products = await _pi_load_products(req.limit)
+    _pi_mark_duplicates(products)
+    cat_counts: dict[str, int] = {}
+    for p in products:
+        c = str(p.get("category") or "uncategorized"); cat_counts[c] = cat_counts.get(c, 0) + 1
+    scored = [score_product(p, cfg, cat_counts) for p in products]
+    selection = select_products(scored, cfg)
+    run = {"id": str(uuid.uuid4()), "mode": cfg.get("mode","automatic"), "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+    report = build_report(run, scored, selection, cfg)
+    if req.save:
+        run_row = await pi_create_selection_run(cfg.get("mode","automatic"), cfg, created_by=req.created_by or user.get("email",""))
+        run_id = str(run_row.get("id")); report["run"]["id"] = run_id
+        for i,s in enumerate(selection["selected"], start=1):
+            await pi_save_selection_item(run_id,i,s,True,"selected"); await pi_save_product_score(run_id,s,cfg)
+        for i,s in enumerate([x for x in scored if not x.get("eligible")][:500], start=1):
+            await pi_save_selection_item(run_id,i,s,False,",".join(s.get("exclusions",[])) or "not_selected")
+        status = "completed_insufficient" if selection["insufficient"] else "completed"
+        await pi_finish_selection_run(run_id,status,report,selection["selected_count"],selection["eligible_count"],len(scored))
+        run["id"]=run_id; run["status"]=status
+    return {"status":"ok","run":run,"report":report}
+
+
+@app.post("/api/product-intelligence/catalog/preview")
+async def pi_catalog_preview(req: PICatalogSelectRequest, user: dict[str, Any] = Depends(require_permission("products.read"))):
+    req.save=False
+    return await pi_catalog_select(req)
+
+
+@app.post("/api/product-intelligence/catalog/exclusions")
+async def pi_catalog_exclusions(req: PICatalogAnalyzeRequest, user: dict[str, Any] = Depends(require_permission("products.read"))):
+    cfg = merge_config(req.config)
+    products = await _pi_load_products(req.limit)
+    _pi_mark_duplicates(products)
+    cat_counts: dict[str, int] = {}
+    for p in products:
+        c = str(p.get("category") or "uncategorized"); cat_counts[c] = cat_counts.get(c, 0) + 1
+    scored = [score_product(p, cfg, cat_counts) for p in products]
+    excluded = [{"sku":s["sku"],"title":s["title"],"score":s["score"],"exclusions":s["exclusions"]} for s in scored if not s.get("eligible")]
+    excl_counts = {e:sum(1 for s in scored for ex in s.get("exclusions",[]) if ex==e) for e in sorted({ex for s in scored for ex in s.get("exclusions",[])})}
+    return {"status":"ok","total":len(scored),"excluded_count":len(excluded),"exclusion_counts":excl_counts,"items":excluded[:1000],"config":cfg}
+
+
+@app.get("/api/product-intelligence/selection-runs")
+async def pi_selection_runs(limit: int = Query(default=20, ge=1, le=100), user: dict[str, Any] = Depends(require_permission("products.read"))):
+    return {"status":"ok","items": await pi_list_selection_runs(limit)}
+
+
+@app.get("/api/product-intelligence/selection-runs/{run_id}")
+async def pi_selection_run_detail(run_id: str, user: dict[str, Any] = Depends(require_permission("products.read"))):
+    row = await pi_get_selection_run(run_id)
+    if not row: raise HTTPException(status_code=404, detail="Selection run not found")
+    return {"status":"ok","run":row}
+
+
+@app.post("/api/product-intelligence/shopify/dry-run")
+async def pi_shopify_dry_run(req: PIExportDryRunRequest, user: dict[str, Any] = Depends(require_permission("products.read"))):
+    cfg = merge_config(req.config)
+    if not req.selection_run_id:
+        sel = await pi_catalog_preview(PICatalogSelectRequest(config=cfg, save=False), user=user)
+        report = sel["report"]; selected = report["top_selected"]; run_id = sel["run"]["id"]; selected_count = report["summary"]["selected_products"]
+    else:
+        row = await pi_get_selection_run(req.selection_run_id)
+        if not row: raise HTTPException(status_code=404, detail="Selection run not found")
+        selected = [i.get("snapshot_json") or i for i in (row.get("items") or []) if i.get("selected")]
+        run_id = req.selection_run_id; selected_count = int(row.get("selected_count") or len(selected))
+    warnings=[]
+    if selected_count < cfg["min_count"]: warnings.append(f"selected_count {selected_count} below min_count {cfg['min_count']}")
+    if selected_count > cfg["max_count"]: warnings.append(f"selected_count {selected_count} above max_count {cfg['max_count']}")
+    preview_items=[{"sku":s.get("sku"),"title":s.get("title"),"score":s.get("score"),"shopify_handle":str(s.get("sku","")).lower().replace(" ","-"),"status":"dry_run_only"} for s in selected[:50]]
+    job = await pi_create_export_job(mode="dry_run", target=req.target, selection_run_id=run_id, requested_count=selected_count, payload={"config":cfg,"selection_run_id":run_id}, created_by=user.get("email","api"), idempotency_key=req.idempotency_key)
+    result = {"mode":"dry_run","target":req.target,"selection_run_id":run_id,"requested_count":selected_count,"exported_count":0,"validated_count":selected_count,"warnings":warnings,"preview":preview_items,"note":"Dry-run only. No Shopify data was transmitted."}
+    await pi_update_export_job(str(job.get("id")), status="completed", result_json=result, processed_count=selected_count, success_count=selected_count)
+    job["result_json"]=result
+    return {"status":"ok","job":job,"result":result}
+
+
+@app.post("/api/product-intelligence/analyze")
+async def api_pi_analyze(payload: ProductIntelligenceAnalyzeRequest, user: dict[str, Any] = Depends(require_permission("products.read"))):
+    from services.product_intelligence_engine import ProductIntelligenceEngine
+    engine = ProductIntelligenceEngine(omniroute_client=getattr(runtime, "omniroute_client", None))
+    result = await engine.analyze(payload.sku, payload.channel, signals=payload.signals, persist=True, actor=user.get("email","system"))
+    return result
+
+
+@app.get("/api/product-intelligence/results")
+async def api_pi_results(sku: str | None = None, channel: str | None = None, limit: int = 100, user: dict[str, Any] = Depends(require_permission("products.read"))):
+    from database import list_product_analysis_results
+    return await list_product_analysis_results(sku=sku, channel=channel, limit=limit)
+
+
+@app.get("/api/product-intelligence/approvals")
+async def api_pi_approvals(channel: str | None = None, decision: str | None = None, limit: int = 200, user: dict[str, Any] = Depends(require_permission("products.read"))):
+    from database import list_product_export_approvals
+    return await list_product_export_approvals(channel=channel, decision=decision, limit=limit)
+
+
+@app.post("/api/product-intelligence/approve")
+async def api_pi_approve(payload: ProductIntelligenceApprovalRequest, user: dict[str, Any] = Depends(require_permission("products.write"))):
+    from services.export_gate import record_decision
+    rec = await record_decision(
+        sku=payload.sku, channel=payload.channel, decision=payload.decision, source="manual",
+        reasons=payload.reasons, score=payload.score, modifications=payload.modifications,
+        actor=user.get("email","user"), expires_at=payload.expires_at,
+    )
+    return {"ok": True, "approval": rec}
+
+
+@app.get("/api/product-intelligence/gate/{sku}")
+async def api_pi_gate(sku: str, channel: str = "shopware", user: dict[str, Any] = Depends(require_permission("products.read"))):
+    from services.export_gate import is_export_approved
+    gate = await is_export_approved(sku, channel)
+    return {"sku": sku, "channel": channel, **gate.to_dict()}
+
+
+@app.post("/api/product-intelligence/signals")
+async def api_pi_signal(payload: MarketSignalRequest, user: dict[str, Any] = Depends(require_permission("products.write"))):
+    from database import add_product_market_signal
+    rec = await add_product_market_signal(payload.model_dump())
+    return {"ok": True, "signal": rec}
+
+
+@app.get("/api/product-intelligence/signals")
+async def api_pi_signals(sku: str | None = None, limit: int = 100, user: dict[str, Any] = Depends(require_permission("products.read"))):
+    from database import list_product_market_signals
+    return await list_product_market_signals(sku=sku, limit=limit)
+
 
 
 @app.get("/api/connectors/accounts")

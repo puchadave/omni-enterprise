@@ -1,0 +1,1 @@
+{"id":"resilience-failover","version":"1.0.0","description":"Health, Cooldown, Circuit-Breaker und Failover-Strategien","hooks":["pre_route","error"],"config":{"circuit_breaker":true,"cooldown_seconds":30}}

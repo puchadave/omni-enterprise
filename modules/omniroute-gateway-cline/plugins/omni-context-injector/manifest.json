@@ -1,0 +1,1 @@
+{"id":"omni-context-injector","version":"1.0.0","description":"Injiziert Projekt/Policy/Combo-Kontext pro Request","hooks":["pre_prompt"],"config":{"inject_policies":true,"inject_tier_hint":true}}

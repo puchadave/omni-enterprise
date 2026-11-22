@@ -1,0 +1,1 @@
+{"id":"mcp-tool-bridge","version":"1.0.0","description":"Gateway-seitige Registrierung/Proxy ausgewählter MCP-Tools","hooks":["tool_registry","tool_call"],"config":{"default_mode":"read_only","catalog_ref":"shared/mcp/catalog.json"}}

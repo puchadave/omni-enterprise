@@ -1,0 +1,16 @@
+{
+  "version": "1.0.0",
+  "target": "omniroute-gateway-cline",
+  "gateway": "http://192.168.176.62:20128/v1",
+  "plugins": [
+    {"id": "combo-policy-router", "manifest": "combo-policy-router/manifest.json", "enabled": true},
+    {"id": "structured-output-guard", "manifest": "structured-output-guard/manifest.json", "enabled": true},
+    {"id": "safety-gate", "manifest": "safety-gate/manifest.json", "enabled": true},
+    {"id": "mcp-tool-bridge", "manifest": "mcp-tool-bridge/manifest.json", "enabled": true},
+    {"id": "omni-context-injector", "manifest": "omni-context-injector/manifest.json", "enabled": true},
+    {"id": "cache-semantic", "manifest": "cache-semantic/manifest.json", "enabled": true},
+    {"id": "observability-telemetry", "manifest": "observability-telemetry/manifest.json", "enabled": true},
+    {"id": "ab-routing-eval", "manifest": "ab-routing-eval/manifest.json", "enabled": false},
+    {"id": "resilience-failover", "manifest": "resilience-failover/manifest.json", "enabled": true}
+  ]
+}

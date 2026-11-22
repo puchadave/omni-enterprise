@@ -1,0 +1,1 @@
+{"id":"observability-telemetry","version":"1.0.0","description":"Traces, Token/Kosten, Latenz, Audit-Events","hooks":["request","response","error"],"config":{"emit_audit_events":true,"capture_costs":true}}

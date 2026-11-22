@@ -25,9 +25,9 @@ case "$cmd" in
   health)
     PORT_MW=$(grep -E '^MIDDLEWARE_PORT=' .env 2>/dev/null|tail -1|cut -d= -f2-||echo 8002)
     PORT_OR=$(grep -E '^OMNIROUTE_PORT=' .env 2>/dev/null|tail -1|cut -d= -f2-||echo 20128)
-    KEY=$(grep -E '^OMNIROUTE_API_KEY=' .env 2>/dev/null|tail -1|cut -d= -f2-||echo "sk-814c9467fd9c9314-a41c41-72e2d3b0")
+    KEY=$(grep -E '^OMNIROUTE_API_KEY=' .env 2>/dev/null|tail -1|cut -d= -f2-||echo "change_me_omniroute_api_key")
     echo "-- middleware /healthz"; curl -fsS "http://localhost:${PORT_MW}/healthz" || echo "FAIL"; echo
-    echo "-- omniroute /v1/models"; curl -fsS -H "Authorization: Bearer ${KEY}" "http://localhost:${PORT_OR}/v1/models" | head -c 200 || echo "FAIL"; echo
+    echo "-- omniroute /v1/models"; curl -fsS -H "Authorization: Bearer ${KEY}" "http://192.168.176.62:20128/v1/models" | head -c 200 || echo "FAIL"; echo
     echo "-- shopware /"; curl -fsS -o /dev/null -w '%{http_code}' "http://localhost:$(grep -E '^SHOPWARE_PORT=' .env 2>/dev/null|tail -1|cut -d= -f2-||echo 8088)/" || echo " FAIL"; echo
     ;;
   *) echo "usage: $0 <up|down|restart|logs|status|pull|build|config|health> [compose-args]"; exit 2;;

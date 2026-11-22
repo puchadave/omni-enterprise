@@ -1,0 +1,25 @@
+{
+  "version": "1.0.0",
+  "gateway": {
+    "baseURL_env": "OMNIROUTE_URL",
+    "apiKey_env": "OMNIROUTE_API_KEY",
+    "default_baseURL": "http://192.168.176.62:20128/v1"
+  },
+  "roles": {
+    "planner": {"tier": "T2", "combo": "architecture-reasoning", "mode": "plan", "write": false},
+    "coder": {"tier": "T1", "combo": "coding-primary", "mode": "implement", "write": true},
+    "reviewer": {"tier": "T3", "combo": "coding-review", "mode": "review", "write": false, "independent": true},
+    "researcher": {"tier": "T2", "combo": "long-context-analysis", "mode": "analyze", "write": false},
+    "vision": {"tier": "T1", "combo": "omnicore-vision", "mode": "vision", "write": false},
+    "sales_intel": {"tier": "T2", "combo": "omnicore-sales-product-intelligence", "mode": "analyze_decide", "write": false},
+    "operator": {"tier": "T0", "combo": "t0-fast-trivial", "mode": "tools", "write": false}
+  },
+  "policies": {
+    "max_fix_iterations": 3,
+    "require_independent_review": true,
+    "require_export_approval_gate": true,
+    "require_paid_guard_for_fulfillment": true,
+    "confirm_destructive": true,
+    "default_mcp_mode": "read_only"
+  }
+}

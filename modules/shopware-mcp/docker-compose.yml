@@ -1,0 +1,39 @@
+name: shopware-mcp
+
+x-log: &log
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "5" }
+
+services:
+  shopware-mcp:
+    <<: *log
+    image: node:22-alpine
+    container_name: ${COMPOSE_PROJECT_NAME:-omni-shopware-mcp}
+    restart: unless-stopped
+    working_dir: /srv
+    environment:
+      TZ: ${TZ:-Europe/Berlin}
+      SHOPWARE_URL: ${SHOPWARE_URL:-http://shopware:80}
+      SHOPWARE_ACCESS_KEY_ID: ${SHOPWARE_ACCESS_KEY_ID:-}
+      SHOPWARE_SECRET_ACCESS_KEY: ${SHOPWARE_SECRET_ACCESS_KEY:-}
+      SHOPWARE_MCP_READ_ONLY: ${SHOPWARE_MCP_READ_ONLY:-true}
+      MCP_TRANSPORT: ${MCP_TRANSPORT:-http}
+      MCP_PORT: ${MCP_PORT:-7331}
+      NPM_CONFIG_YES: "true"
+    command: ["sh", "-lc", "npx -y ${SHOPWARE_MCP_PACKAGE:-@shopware/mcp-server} ${SHOPWARE_MCP_ARGS:-}"]
+    ports:
+      - "${SERVICE_BIND_HOST:-0.0.0.0}:${MCP_PORT:-7331}:${MCP_PORT:-7331}"
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"process.exit(0)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - shopware-mcp-net
+
+networks:
+  shopware-mcp-net:
+    name: ${COMPOSE_PROJECT_NAME:-omni-shopware-mcp}_net
+    driver: bridge

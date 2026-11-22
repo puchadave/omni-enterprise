@@ -1,0 +1,1 @@
+{"id":"safety-gate","version":"1.0.0","description":"PII/Secret-Redaktion und Policy-Gates (kein Export ohne Approval)","hooks":["pre_request","post_response"],"config":{"redact_secrets":true,"block_export_without_approval":true,"paid_guard_required":true}}

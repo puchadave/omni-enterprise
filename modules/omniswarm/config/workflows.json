@@ -1,0 +1,9 @@
+{
+  "workflows": {
+    "feature": {"steps": ["planner", "coder", "test", "reviewer"], "gates": ["tests_green", "review_pass"]},
+    "bugfix": {"steps": ["researcher", "coder", "test", "reviewer"], "gates": ["tests_green", "review_pass"]},
+    "sales_approval": {"steps": ["sales_intel", "gate_check", "operator"], "gates": ["export_approved", "paid_guard_when_fulfill"]},
+    "shopware_export": {"steps": ["sales_intel", "approve_or_hold", "operator"], "gates": ["export_approved"]},
+    "content_optimize": {"steps": ["sales_intel", "vision", "operator"], "gates": ["margin_guardrail"]}
+  }
+}

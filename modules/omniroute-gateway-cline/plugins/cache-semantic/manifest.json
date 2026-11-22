@@ -1,0 +1,1 @@
+{"id":"cache-semantic","version":"1.0.0","description":"Cache/Dedupe wiederholter Prompts und Analysen","hooks":["cache_lookup","cache_store"],"config":{"ttl_seconds":300,"enabled":true}}

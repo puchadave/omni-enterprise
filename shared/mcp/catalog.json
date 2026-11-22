@@ -1,0 +1,136 @@
+{
+  "version": "1.0.0",
+  "generated": "2026-11-16",
+  "namespace": "omni",
+  "principles": [
+    "one_mcp_per_domain",
+    "least_privilege_scopes",
+    "confirm_for_destructive_or_export_actions",
+    "secrets_via_env_or_secret_store",
+    "audit_all_write_operations",
+    "export_only_with_approval_and_paid_guard"
+  ],
+  "servers": [
+    {
+      "id": "shopware-mcp",
+      "domain": "commerce.shopware",
+      "purpose": "Lokaler Zugriff auf Shopware 6 (Katalog/Bestand/Bestellungen) via Admin-API für Agenten",
+      "transport": ["stdio"],
+      "backend": "http://shopware:80 (lokal) + Bootstrap-Credentials",
+      "default_mode": "read_only",
+      "tools": ["products.list", "products.get", "orders.list", "orders.get", "inventory.read", "categories.list", "media.list", "shop.info"],
+      "write_tools_gated": ["products.update", "inventory.update", "orders.update"],
+      "module": "modules/shopware-mcp"
+    },
+    {
+      "id": "marketplace-vinted-mcp",
+      "domain": "commerce.vinted",
+      "purpose": "Vinted/Vintage-Connector-Steuerung (Listings, Orders, Payment-Status, Sync) capability-gated",
+      "transport": ["stdio", "http"],
+      "backend": "middleware /api/connectors/vinted/*",
+      "default_mode": "read_only",
+      "tools": ["accounts.list", "accounts.test", "listings.list", "orders.list", "payment.status", "sync.trigger"],
+      "write_tools_gated": ["listing.publish", "fulfillment.update"]
+    },
+    {
+      "id": "product-intelligence-mcp",
+      "domain": "sales.intelligence",
+      "purpose": "Verkaufs-KI: Analyse (Trends/Social/Finanzen/A-B), Scorecard, Freigabe, Modifikationsvorschläge",
+      "transport": ["stdio"],
+      "backend": "middleware /api/product-intelligence/* + export_gate",
+      "default_mode": "read_write_gated",
+      "tools": ["analyze", "results.get", "approvals.list", "approve", "signals.add", "signals.list", "gate.check"],
+      "write_tools_gated": ["approve", "apply_modification_safe"]
+    },
+    {
+      "id": "omni-middleware-mcp",
+      "domain": "core.middleware",
+      "purpose": "Kernzugriff auf Produkte, Orders, Inventory, Export-Queue/Status, Jobs, Health",
+      "transport": ["stdio", "http"],
+      "backend": "middleware API",
+      "default_mode": "read_only",
+      "tools": ["products.list", "products.get", "orders.list", "exports.queue", "exports.status", "jobs.list", "health.check"],
+      "write_tools_gated": ["products.upsert", "exports.trigger"]
+    },
+    {
+      "id": "omniroute-admin-mcp",
+      "domain": "ai.gateway",
+      "purpose": "OmniRoute-Admin: Modelle/Combos/Provider/Health/Routing-Test (Gateway 192.168.176.62)",
+      "transport": ["stdio"],
+      "backend": "http://192.168.176.62:20128/v1 + mgmt endpoints",
+      "default_mode": "read_only",
+      "tools": ["models.list", "combos.list", "health.check", "routing.test"],
+      "write_tools_gated": ["combos.upsert", "config.update"]
+    },
+    {
+      "id": "social-mcp",
+      "domain": "growth.social",
+      "purpose": "Social-Signale, Engagement/Sentiment, Planung/Posts (Feed für Produkt-Intelligenz)",
+      "transport": ["stdio"],
+      "backend": "modules/social + middleware events",
+      "default_mode": "read_only",
+      "tools": ["signals.list", "metrics.read", "posts.plan", "posts.list"],
+      "write_tools_gated": ["posts.publish"]
+    },
+    {
+      "id": "marketing-mcp",
+      "domain": "growth.marketing",
+      "purpose": "Kampagnen, Segmente, Performance, Briefs/Signale",
+      "transport": ["stdio"],
+      "backend": "modules/marketing",
+      "default_mode": "read_only",
+      "tools": ["campaigns.list", "performance.read", "briefs.create"],
+      "write_tools_gated": ["campaigns.update"]
+    },
+    {
+      "id": "content-studio-mcp",
+      "domain": "ai.content",
+      "purpose": "Content/SEO/Creative/Photoshoot-Generierung und QC",
+      "transport": ["stdio"],
+      "backend": "modules/content-studio + OmniRoute vision",
+      "default_mode": "read_write_gated",
+      "tools": ["content.generate", "seo.optimize", "image.qc", "assets.list"],
+      "write_tools_gated": ["asset.publish"]
+    },
+    {
+      "id": "devops-swarm-mcp",
+      "domain": "ops.devops",
+      "purpose": "Build/Test/Lint, Compose/Swarm/Deploy, Logs/Jobs (confirm bei destruktiv)",
+      "transport": ["stdio"],
+      "backend": "coding-swarm, docker, swarm/portainer APIs",
+      "default_mode": "read_only",
+      "tools": ["repo.status", "tests.run", "logs.read", "services.list", "deploy.plan"],
+      "write_tools_gated": ["deploy.apply", "service.restart"]
+    },
+    {
+      "id": "infra-mcp",
+      "domain": "ops.infra",
+      "purpose": "Portainer/Traefik/Nodes/Backups/ZeroTier Status & Smoke",
+      "transport": ["stdio"],
+      "backend": "modules/portainer, edge-proxy, scripts",
+      "default_mode": "read_only",
+      "tools": ["nodes.list", "stacks.list", "backup.status", "smoke.run", "zerotier.status"],
+      "write_tools_gated": ["backup.trigger"]
+    },
+    {
+      "id": "knowledge-mcp",
+      "domain": "memory.knowledge",
+      "purpose": "Wissensbasis/Runbooks/Entscheidungslog speichern & suchen (OmniSwarm Memory)",
+      "transport": ["stdio"],
+      "backend": "knowledge store + audit",
+      "default_mode": "read_write",
+      "tools": ["search", "get", "put", "decision.log"],
+      "write_tools_gated": []
+    },
+    {
+      "id": "governance-mcp",
+      "domain": "governance.audit",
+      "purpose": "Audit, Policy/Gate-Prüfung, Freigabe-Trail, Risiko-Reports (read-only)",
+      "transport": ["stdio"],
+      "backend": "audit/event-bus/export_gate",
+      "default_mode": "read_only",
+      "tools": ["audit.list", "policy.check", "approval.trail", "risk.report"],
+      "write_tools_gated": []
+    }
+  ]
+}

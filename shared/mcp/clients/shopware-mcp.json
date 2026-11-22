@@ -1,0 +1,16 @@
+{
+  "mcp": {
+    "shopware": {
+      "type": "local",
+      "command": ["npx", "-y", "@shopware/mcp-server"],
+      "environment": {
+        "SHOPWARE_URL": "{env:SHOPWARE_URL}",
+        "SHOPWARE_ACCESS_KEY_ID": "{env:SHOPWARE_ACCESS_KEY_ID}",
+        "SHOPWARE_SECRET_ACCESS_KEY": "{env:SHOPWARE_SECRET_ACCESS_KEY}",
+        "SHOPWARE_MCP_READ_ONLY": "{env:SHOPWARE_MCP_READ_ONLY}"
+      },
+      "enabled": true,
+      "notes": "Lokale Shopware 6 (Standard: http://shopware:80 / http://localhost:8088). Credentials aus modules/shopware/integration/credentials.env. Paketname ggf. an verfügbaren Shopware-MCP-Server anpassen."
+    }
+  }
+}

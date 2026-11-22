@@ -1,0 +1,1 @@
+{"id":"ab-routing-eval","version":"1.0.0","description":"A/B-Vergleich und Qualitäts-Evals für Combos/Modelle","hooks":["routing_feedback","eval"],"config":{"enabled":false,"sample_rate":0.05}}

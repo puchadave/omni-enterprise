@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 import os
+import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
@@ -1652,8 +1653,148 @@ CREATE TABLE IF NOT EXISTS shopware_connections (
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
     """,
-    "CREATE INDEX IF NOT EXISTS idx_finance_reconciliations_source ON finance_reconciliations(source_type, source_id, created_at DESC)"
+    "CREATE INDEX IF NOT EXISTS idx_finance_reconciliations_source ON finance_reconciliations(source_type, source_id, created_at DESC)",
+    # --- Catalog Intelligence / Selection / Export Dry-Run (Slice 1) ---
+    """
+    CREATE TABLE IF NOT EXISTS pi_scoring_configs (
+        id TEXT PRIMARY KEY, name TEXT NOT NULL, config_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        is_default BOOLEAN NOT NULL DEFAULT FALSE, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS pi_product_scores (
+        id TEXT PRIMARY KEY, run_id TEXT NOT NULL DEFAULT '', sku TEXT NOT NULL, score NUMERIC(6,2) NOT NULL DEFAULT 0,
+        eligible BOOLEAN NOT NULL DEFAULT FALSE, criteria_json JSONB NOT NULL DEFAULT '{}'::jsonb, exclusions_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+        reasons_json JSONB NOT NULL DEFAULT '[]'::jsonb, config_json JSONB NOT NULL DEFAULT '{}'::jsonb, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_pi_product_scores_sku_created ON pi_product_scores(sku, created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_pi_product_scores_run ON pi_product_scores(run_id)",
+    """
+    CREATE TABLE IF NOT EXISTS pi_selection_runs (
+        id TEXT PRIMARY KEY, mode TEXT NOT NULL DEFAULT 'automatic', status TEXT NOT NULL DEFAULT 'completed',
+        target_count INTEGER NOT NULL DEFAULT 600, min_count INTEGER NOT NULL DEFAULT 500, max_count INTEGER NOT NULL DEFAULT 750,
+        selected_count INTEGER NOT NULL DEFAULT 0, eligible_count INTEGER NOT NULL DEFAULT 0, total_count INTEGER NOT NULL DEFAULT 0,
+        config_json JSONB NOT NULL DEFAULT '{}'::jsonb, report_json JSONB NOT NULL DEFAULT '{}'::jsonb, error_message TEXT NOT NULL DEFAULT '',
+        created_by TEXT NOT NULL DEFAULT '', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), completed_at TIMESTAMPTZ
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_pi_selection_runs_created ON pi_selection_runs(created_at DESC)",
+    """
+    CREATE TABLE IF NOT EXISTS pi_selection_items (
+        id TEXT PRIMARY KEY, run_id TEXT NOT NULL, sku TEXT NOT NULL, rank INTEGER NOT NULL DEFAULT 0, score NUMERIC(6,2) NOT NULL DEFAULT 0,
+        selected BOOLEAN NOT NULL DEFAULT FALSE, decision_reason TEXT NOT NULL DEFAULT '', exclusions_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+        snapshot_json JSONB NOT NULL DEFAULT '{}'::jsonb, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_pi_selection_items_run ON pi_selection_items(run_id, selected, rank)",
+    "CREATE INDEX IF NOT EXISTS idx_pi_selection_items_sku ON pi_selection_items(sku)",
+    """
+    CREATE TABLE IF NOT EXISTS pi_export_jobs (
+        id TEXT PRIMARY KEY, idempotency_key TEXT NOT NULL DEFAULT '', mode TEXT NOT NULL DEFAULT 'dry_run', target TEXT NOT NULL DEFAULT 'shopify',
+        status TEXT NOT NULL DEFAULT 'pending', selection_run_id TEXT NOT NULL DEFAULT '', requested_count INTEGER NOT NULL DEFAULT 0, processed_count INTEGER NOT NULL DEFAULT 0,
+        success_count INTEGER NOT NULL DEFAULT 0, failed_count INTEGER NOT NULL DEFAULT 0, payload_json JSONB NOT NULL DEFAULT '{}'::jsonb, result_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        error_message TEXT NOT NULL DEFAULT '', created_by TEXT NOT NULL DEFAULT '', approved_by TEXT NOT NULL DEFAULT '', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), completed_at TIMESTAMPTZ
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_pi_export_jobs_status ON pi_export_jobs(status, created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_pi_export_jobs_idem ON pi_export_jobs(idempotency_key)"
 
+
+
+    """
+    CREATE TABLE IF NOT EXISTS product_analysis_runs (
+        run_id TEXT PRIMARY KEY,
+        sku TEXT NOT NULL DEFAULT '',
+        channel TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'completed',
+        model_combo TEXT NOT NULL DEFAULT '',
+        policy_version TEXT NOT NULL DEFAULT 'v1',
+        summary_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        finished_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS product_analysis_results (
+        id BIGSERIAL PRIMARY KEY,
+        run_id TEXT NOT NULL DEFAULT '',
+        sku TEXT NOT NULL,
+        channel TEXT NOT NULL DEFAULT 'shopware',
+        decision TEXT NOT NULL DEFAULT 'review_required',
+        total_score NUMERIC(8,2) NOT NULL DEFAULT 0,
+        confidence NUMERIC(8,2) NOT NULL DEFAULT 0,
+        scorecard_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        reasons_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+        signals_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+        modifications_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+        expires_at TIMESTAMPTZ,
+        source TEXT NOT NULL DEFAULT 'product_intelligence',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS product_export_approvals (
+        sku TEXT NOT NULL,
+        channel TEXT NOT NULL,
+        decision TEXT NOT NULL DEFAULT 'review_required',
+        score NUMERIC(8,2),
+        reasons_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+        modifications_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        source TEXT NOT NULL DEFAULT 'manual',
+        actor TEXT NOT NULL DEFAULT 'system',
+        run_id TEXT NOT NULL DEFAULT '',
+        expires_at TIMESTAMPTZ,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (sku, channel)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS product_modifications (
+        id BIGSERIAL PRIMARY KEY,
+        run_id TEXT NOT NULL DEFAULT '',
+        sku TEXT NOT NULL,
+        channel TEXT NOT NULL DEFAULT '',
+        field TEXT NOT NULL DEFAULT '',
+        before_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        after_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        action TEXT NOT NULL DEFAULT 'suggest',
+        status TEXT NOT NULL DEFAULT 'suggested',
+        reason TEXT NOT NULL DEFAULT '',
+        actor TEXT NOT NULL DEFAULT 'system',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS product_market_signals (
+        id BIGSERIAL PRIMARY KEY,
+        sku TEXT NOT NULL DEFAULT '',
+        category TEXT NOT NULL DEFAULT '',
+        source TEXT NOT NULL DEFAULT '',
+        metric TEXT NOT NULL DEFAULT '',
+        value NUMERIC(14,4) NOT NULL DEFAULT 0,
+        period TEXT NOT NULL DEFAULT '',
+        payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS product_ab_tests (
+        id TEXT PRIMARY KEY,
+        sku TEXT NOT NULL DEFAULT '',
+        channel TEXT NOT NULL DEFAULT '',
+        variant_a_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        variant_b_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        status TEXT NOT NULL DEFAULT 'draft',
+        winner TEXT NOT NULL DEFAULT '',
+        metrics_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        started_at TIMESTAMPTZ,
+        finished_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
 
 )
 
@@ -2849,6 +2990,121 @@ CREATE TABLE IF NOT EXISTS finance_reconciliations (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_finance_reconciliations_source ON finance_reconciliations(source_type, source_id, created_at DESC);
+
+-- Catalog Intelligence / Selection / Export Dry-Run (Slice 1)
+CREATE TABLE IF NOT EXISTS pi_scoring_configs (
+    id TEXT PRIMARY KEY, name TEXT NOT NULL, config_json TEXT NOT NULL DEFAULT '{}', is_default INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pi_product_scores (
+    id TEXT PRIMARY KEY, run_id TEXT NOT NULL DEFAULT '', sku TEXT NOT NULL, score REAL NOT NULL DEFAULT 0, eligible INTEGER NOT NULL DEFAULT 0,
+    criteria_json TEXT NOT NULL DEFAULT '{}', exclusions_json TEXT NOT NULL DEFAULT '[]', reasons_json TEXT NOT NULL DEFAULT '[]', config_json TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_pi_product_scores_sku_created ON pi_product_scores(sku, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_pi_product_scores_run ON pi_product_scores(run_id);
+CREATE TABLE IF NOT EXISTS pi_selection_runs (
+    id TEXT PRIMARY KEY, mode TEXT NOT NULL DEFAULT 'automatic', status TEXT NOT NULL DEFAULT 'completed', target_count INTEGER NOT NULL DEFAULT 600,
+    min_count INTEGER NOT NULL DEFAULT 500, max_count INTEGER NOT NULL DEFAULT 750, selected_count INTEGER NOT NULL DEFAULT 0, eligible_count INTEGER NOT NULL DEFAULT 0,
+    total_count INTEGER NOT NULL DEFAULT 0, config_json TEXT NOT NULL DEFAULT '{}', report_json TEXT NOT NULL DEFAULT '{}', error_message TEXT NOT NULL DEFAULT '',
+    created_by TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, completed_at TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_pi_selection_runs_created ON pi_selection_runs(created_at DESC);
+CREATE TABLE IF NOT EXISTS pi_selection_items (
+    id TEXT PRIMARY KEY, run_id TEXT NOT NULL, sku TEXT NOT NULL, rank INTEGER NOT NULL DEFAULT 0, score REAL NOT NULL DEFAULT 0, selected INTEGER NOT NULL DEFAULT 0,
+    decision_reason TEXT NOT NULL DEFAULT '', exclusions_json TEXT NOT NULL DEFAULT '[]', snapshot_json TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_pi_selection_items_run ON pi_selection_items(run_id, selected, rank);
+CREATE INDEX IF NOT EXISTS idx_pi_selection_items_sku ON pi_selection_items(sku);
+CREATE TABLE IF NOT EXISTS pi_export_jobs (
+    id TEXT PRIMARY KEY, idempotency_key TEXT NOT NULL DEFAULT '', mode TEXT NOT NULL DEFAULT 'dry_run', target TEXT NOT NULL DEFAULT 'shopify',
+    status TEXT NOT NULL DEFAULT 'pending', selection_run_id TEXT NOT NULL DEFAULT '', requested_count INTEGER NOT NULL DEFAULT 0, processed_count INTEGER NOT NULL DEFAULT 0,
+    success_count INTEGER NOT NULL DEFAULT 0, failed_count INTEGER NOT NULL DEFAULT 0, payload_json TEXT NOT NULL DEFAULT '{}', result_json TEXT NOT NULL DEFAULT '{}',
+    error_message TEXT NOT NULL DEFAULT '', created_by TEXT NOT NULL DEFAULT '', approved_by TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL, completed_at TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_pi_export_jobs_status ON pi_export_jobs(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_pi_export_jobs_idem ON pi_export_jobs(idempotency_key);
+
+
+CREATE TABLE IF NOT EXISTS product_analysis_runs (
+    run_id TEXT PRIMARY KEY,
+    sku TEXT NOT NULL DEFAULT '',
+    channel TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'completed',
+    model_combo TEXT NOT NULL DEFAULT '',
+    policy_version TEXT NOT NULL DEFAULT 'v1',
+    summary_json TEXT NOT NULL DEFAULT '{}',
+    started_at TEXT,
+    finished_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS product_analysis_results (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL DEFAULT '',
+    sku TEXT NOT NULL,
+    channel TEXT NOT NULL DEFAULT 'shopware',
+    decision TEXT NOT NULL DEFAULT 'review_required',
+    total_score REAL NOT NULL DEFAULT 0,
+    confidence REAL NOT NULL DEFAULT 0,
+    scorecard_json TEXT NOT NULL DEFAULT '{}',
+    reasons_json TEXT NOT NULL DEFAULT '[]',
+    signals_json TEXT NOT NULL DEFAULT '[]',
+    modifications_json TEXT NOT NULL DEFAULT '[]',
+    expires_at TEXT,
+    source TEXT NOT NULL DEFAULT 'product_intelligence',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS product_export_approvals (
+    sku TEXT NOT NULL,
+    channel TEXT NOT NULL,
+    decision TEXT NOT NULL DEFAULT 'review_required',
+    score REAL,
+    reasons_json TEXT NOT NULL DEFAULT '[]',
+    modifications_json TEXT NOT NULL DEFAULT '{}',
+    source TEXT NOT NULL DEFAULT 'manual',
+    actor TEXT NOT NULL DEFAULT 'system',
+    run_id TEXT NOT NULL DEFAULT '',
+    expires_at TEXT,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (sku, channel)
+);
+CREATE TABLE IF NOT EXISTS product_modifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL DEFAULT '',
+    sku TEXT NOT NULL,
+    channel TEXT NOT NULL DEFAULT '',
+    field TEXT NOT NULL DEFAULT '',
+    before_json TEXT NOT NULL DEFAULT '{}',
+    after_json TEXT NOT NULL DEFAULT '{}',
+    action TEXT NOT NULL DEFAULT 'suggest',
+    status TEXT NOT NULL DEFAULT 'suggested',
+    reason TEXT NOT NULL DEFAULT '',
+    actor TEXT NOT NULL DEFAULT 'system',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS product_market_signals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sku TEXT NOT NULL DEFAULT '',
+    category TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT '',
+    metric TEXT NOT NULL DEFAULT '',
+    value REAL NOT NULL DEFAULT 0,
+    period TEXT NOT NULL DEFAULT '',
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS product_ab_tests (
+    id TEXT PRIMARY KEY,
+    sku TEXT NOT NULL DEFAULT '',
+    channel TEXT NOT NULL DEFAULT '',
+    variant_a_json TEXT NOT NULL DEFAULT '{}',
+    variant_b_json TEXT NOT NULL DEFAULT '{}',
+    status TEXT NOT NULL DEFAULT 'draft',
+    winner TEXT NOT NULL DEFAULT '',
+    metrics_json TEXT NOT NULL DEFAULT '{}',
+    started_at TEXT,
+    finished_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 
 """
 
@@ -7040,3 +7296,395 @@ async def upsert_product_aggregate(data: dict[str, Any], *, sync_rules: dict[str
     mcount = await replace_product_media(sku, media) if isinstance(media, list) else 0
     return {"sku": sku, "changed": bool(changed), "categories_linked": len(cat_ids), "variants_linked": vcount, "attributes_saved": acount, "media_saved": mcount}
 
+
+
+# --- Product Intelligence / Export Gate ---
+
+def _pi_dump(val: Any, default: Any) -> str:
+    if val is None:
+        val = default
+    if isinstance(val, str):
+        return val
+    try:
+        return json.dumps(val, ensure_ascii=False)
+    except Exception:
+        return json.dumps(default, ensure_ascii=False)
+
+
+async def save_product_analysis_run(run: dict) -> dict:
+    run_id = str(run.get("run_id") or uuid.uuid4())
+    summary = _pi_dump(run.get("summary_json") or run.get("summary") or {}, {})
+    if uses_postgres():
+        pool = await get_pg_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO product_analysis_runs (run_id, sku, channel, status, model_combo, policy_version, summary_json, started_at, finished_at) "
+                "VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8::timestamptz,$9::timestamptz) "
+                "ON CONFLICT (run_id) DO UPDATE SET status=EXCLUDED.status, summary_json=EXCLUDED.summary_json, finished_at=EXCLUDED.finished_at",
+                run_id, str(run.get("sku") or ""), str(run.get("channel") or ""),
+                str(run.get("status") or "completed"), str(run.get("model_combo") or ""), str(run.get("policy_version") or "v1"),
+                summary, run.get("started_at"), run.get("finished_at"),
+            )
+    else:
+        async with get_connection() as db:
+            await db.execute(
+                "INSERT OR REPLACE INTO product_analysis_runs (run_id,sku,channel,status,model_combo,policy_version,summary_json,started_at,finished_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                (run_id, str(run.get("sku") or ""), str(run.get("channel") or ""), str(run.get("status") or "completed"), str(run.get("model_combo") or ""), str(run.get("policy_version") or "v1"), summary, run.get("started_at"), run.get("finished_at")),
+            )
+            await db.commit()
+    run["run_id"] = run_id
+    return run
+
+
+async def save_product_analysis_result(result: dict) -> dict:
+    scorecard = result.get("scorecard_json") or result.get("scorecard") or {}
+    total = result.get("total_score")
+    if total is None and isinstance(scorecard, dict):
+        total = scorecard.get("total") or scorecard.get("total_score") or 0
+    if uses_postgres():
+        pool = await get_pg_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "INSERT INTO product_analysis_results (run_id, sku, channel, decision, total_score, confidence, scorecard_json, reasons_json, signals_json, modifications_json, expires_at, source) "
+                "VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9::jsonb,$10::jsonb,$11::timestamptz,$12) RETURNING *",
+                str(result.get("run_id") or ""), str(result.get("sku") or ""), str(result.get("channel") or "shopware"),
+                str(result.get("decision") or "review_required"), total, result.get("confidence") or 0,
+                _pi_dump(scorecard, {}), _pi_dump(result.get("reasons") or [], []), _pi_dump(result.get("signals") or [], []),
+                _pi_dump(result.get("modifications") or [], []), result.get("expires_at"), str(result.get("source") or "product_intelligence"),
+            )
+            return dict(row) if row else result
+    async with get_connection() as db:
+        await db.execute(
+            "INSERT INTO product_analysis_results (run_id,sku,channel,decision,total_score,confidence,scorecard_json,reasons_json,signals_json,modifications_json,expires_at,source) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (str(result.get("run_id") or ""), str(result.get("sku") or ""), str(result.get("channel") or "shopware"), str(result.get("decision") or "review_required"), total, result.get("confidence") or 0, _pi_dump(scorecard, {}), _pi_dump(result.get("reasons") or [], []), _pi_dump(result.get("signals") or [], []), _pi_dump(result.get("modifications") or [], []), result.get("expires_at"), str(result.get("source") or "product_intelligence")),
+        )
+        await db.commit()
+    return result
+
+
+async def save_product_modifications(run_id: str, sku: str, channel: str, modifications: list[dict]) -> int:
+    count = 0
+    for m in modifications or []:
+        before = _pi_dump(m.get("before") if "before" in m else {}, {})
+        after = _pi_dump(m.get("after") if "after" in m else m, {})
+        if uses_postgres():
+            pool = await get_pg_pool()
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    "INSERT INTO product_modifications (run_id, sku, channel, field, before_json, after_json, action, status, reason, actor) "
+                    "VALUES ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,$8,$9,$10)",
+                    str(run_id or ""), str(sku or ""), str(channel or ""), str(m.get("field") or ""),
+                    before, after, str(m.get("action") or "suggest"), str(m.get("status") or "suggested"), str(m.get("reason") or ""), str(m.get("actor") or "system"),
+                )
+        else:
+            async with get_connection() as db:
+                await db.execute(
+                    "INSERT INTO product_modifications (run_id,sku,channel,field,before_json,after_json,action,status,reason,actor) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    (str(run_id or ""), str(sku or ""), str(channel or ""), str(m.get("field") or ""), before, after, str(m.get("action") or "suggest"), str(m.get("status") or "suggested"), str(m.get("reason") or ""), str(m.get("actor") or "system")),
+                )
+                await db.commit()
+        count += 1
+    return count
+
+
+async def get_product_export_approval(sku: str, channel: str) -> Optional[dict]:
+    if uses_postgres():
+        pool = await get_pg_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT * FROM product_export_approvals WHERE sku=$1 AND channel=$2", sku, channel)
+            return dict(row) if row else None
+    async with get_connection() as db:
+        cur = await db.execute("SELECT * FROM product_export_approvals WHERE sku=? AND channel=?", (sku, channel))
+        row = await cur.fetchone()
+        if not row:
+            return None
+        cols = [d[0] for d in cur.description]
+        return dict(zip(cols, row))
+
+
+async def upsert_product_export_approval(rec: dict) -> dict:
+    sku = str(rec.get("sku") or "")
+    channel = str(rec.get("channel") or "shopware")
+    reasons = _pi_dump(rec.get("reasons_json") or rec.get("reasons") or [], [])
+    mods = _pi_dump(rec.get("modifications_json") or rec.get("modifications") or {}, {})
+    if uses_postgres():
+        pool = await get_pg_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "INSERT INTO product_export_approvals (sku, channel, decision, score, reasons_json, modifications_json, source, actor, run_id, expires_at, updated_at) "
+                "VALUES ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,$8,$9,$10::timestamptz,NOW()) "
+                "ON CONFLICT (sku, channel) DO UPDATE SET decision=EXCLUDED.decision, score=EXCLUDED.score, reasons_json=EXCLUDED.reasons_json, "
+                "modifications_json=EXCLUDED.modifications_json, source=EXCLUDED.source, actor=EXCLUDED.actor, run_id=EXCLUDED.run_id, expires_at=EXCLUDED.expires_at, updated_at=NOW() "
+                "RETURNING *",
+                sku, channel, str(rec.get("decision") or "review_required"), rec.get("score"),
+                reasons, mods, str(rec.get("source") or "manual"), str(rec.get("actor") or "system"), str(rec.get("run_id") or ""), rec.get("expires_at"),
+            )
+            return dict(row) if row else rec
+    async with get_connection() as db:
+        await db.execute(
+            "INSERT OR REPLACE INTO product_export_approvals (sku,channel,decision,score,reasons_json,modifications_json,source,actor,run_id,expires_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,datetime('now'))",
+            (sku, channel, str(rec.get("decision") or "review_required"), rec.get("score"), reasons, mods, str(rec.get("source") or "manual"), str(rec.get("actor") or "system"), str(rec.get("run_id") or ""), rec.get("expires_at")),
+        )
+        await db.commit()
+    return rec
+
+
+async def list_product_export_approvals(channel: str | None = None, decision: str | None = None, limit: int = 200) -> list[dict]:
+    if uses_postgres():
+        pool = await get_pg_pool()
+        where = []
+        params = []
+        if channel:
+            params.append(channel); where.append(f"channel=${len(params)}")
+        if decision:
+            params.append(decision); where.append(f"decision=${len(params)}")
+        params.append(limit)
+        q = "SELECT * FROM product_export_approvals " + ("WHERE " + " AND ".join(where) if where else "") + f" ORDER BY updated_at DESC LIMIT ${len(params)}"
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(q, *params)
+            return [dict(r) for r in rows]
+    where = []
+    params = []
+    q = "SELECT * FROM product_export_approvals"
+    if channel:
+        where.append("channel=?"); params.append(channel)
+    if decision:
+        where.append("decision=?"); params.append(decision)
+    if where:
+        q += " WHERE " + " AND ".join(where)
+    q += " ORDER BY updated_at DESC LIMIT ?"; params.append(limit)
+    async with get_connection() as db:
+        cur = await db.execute(q, tuple(params))
+        rows = await cur.fetchall(); cols = [d[0] for d in cur.description]
+        return [dict(zip(cols, r)) for r in rows]
+
+
+async def add_product_market_signal(signal: dict) -> dict:
+    payload = _pi_dump(signal.get("payload") or signal.get("payload_json") or {}, {})
+    if uses_postgres():
+        pool = await get_pg_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "INSERT INTO product_market_signals (sku,category,source,metric,value,period,payload_json) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb) RETURNING *",
+                str(signal.get("sku") or ""), str(signal.get("category") or ""), str(signal.get("source") or ""), str(signal.get("metric") or ""), float(signal.get("value") or 0), str(signal.get("period") or ""), payload,
+            )
+            return dict(row) if row else signal
+    async with get_connection() as db:
+        await db.execute(
+            "INSERT INTO product_market_signals (sku,category,source,metric,value,period,payload_json) VALUES (?,?,?,?,?,?,?)",
+            (str(signal.get("sku") or ""), str(signal.get("category") or ""), str(signal.get("source") or ""), str(signal.get("metric") or ""), float(signal.get("value") or 0), str(signal.get("period") or ""), payload),
+        )
+        await db.commit()
+    return signal
+
+
+async def list_product_market_signals(sku: str | None = None, limit: int = 100) -> list[dict]:
+    if uses_postgres():
+        pool = await get_pg_pool()
+        if sku:
+            q = "SELECT * FROM product_market_signals WHERE sku=$1 ORDER BY created_at DESC LIMIT $2"; params = (sku, limit)
+        else:
+            q = "SELECT * FROM product_market_signals ORDER BY created_at DESC LIMIT $1"; params = (limit,)
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(q, *params)
+            return [dict(r) for r in rows]
+    async with get_connection() as db:
+        if sku:
+            cur = await db.execute("SELECT * FROM product_market_signals WHERE sku=? ORDER BY created_at DESC LIMIT ?", (sku, limit))
+        else:
+            cur = await db.execute("SELECT * FROM product_market_signals ORDER BY created_at DESC LIMIT ?", (limit,))
+        rows = await cur.fetchall(); cols = [d[0] for d in cur.description]
+        return [dict(zip(cols, r)) for r in rows]
+
+
+async def list_product_analysis_results(sku: str | None = None, channel: str | None = None, limit: int = 100) -> list[dict]:
+    if uses_postgres():
+        pool = await get_pg_pool()
+        where = []
+        params = []
+        if sku:
+            params.append(sku); where.append(f"sku=${len(params)}")
+        if channel:
+            params.append(channel); where.append(f"channel=${len(params)}")
+        params.append(limit)
+        q = "SELECT * FROM product_analysis_results " + ("WHERE " + " AND ".join(where) if where else "") + f" ORDER BY created_at DESC LIMIT ${len(params)}"
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(q, *params)
+            return [dict(r) for r in rows]
+    where = []
+    params = []
+    if sku:
+        where.append("sku=?"); params.append(sku)
+    if channel:
+        where.append("channel=?"); params.append(channel)
+    q = "SELECT * FROM product_analysis_results " + ("WHERE " + " AND ".join(where) if where else "") + " ORDER BY created_at DESC LIMIT ?"; params.append(limit)
+    async with get_connection() as db:
+        cur = await db.execute(q, tuple(params))
+        rows = await cur.fetchall(); cols = [d[0] for d in cur.description]
+        return [dict(zip(cols, r)) for r in rows]
+
+
+# --- Catalog Intelligence helpers (Slice 1, pi_* tables) ---
+def _pi_json_dumps(v: Any) -> str:
+    return json.dumps(v if v is not None else {}, ensure_ascii=False, default=str)
+
+def _pi_json_loads(v: Any, default: Any) -> Any:
+    if v is None or v == "": return default
+    if isinstance(v, (dict, list)): return v
+    try: return json.loads(v)
+    except Exception: return default
+
+async def pi_save_scoring_config(name: str, config: dict[str, Any], is_default: bool = False) -> dict[str, Any]:
+    cid=str(uuid.uuid4()); now=utc_now(); cfg=_pi_json_dumps(config)
+    if uses_postgres():
+        pool=await get_pg_pool()
+        async with pool.acquire() as conn:
+            if is_default: await conn.execute("UPDATE pi_scoring_configs SET is_default=FALSE, updated_at=NOW()")
+            await conn.execute("""INSERT INTO pi_scoring_configs(id,name,config_json,is_default,created_at,updated_at) VALUES($1,$2,$3::jsonb,$4,NOW(),NOW())""", cid,name,cfg,bool(is_default))
+            row=await conn.fetchrow("SELECT * FROM pi_scoring_configs WHERE id=$1", cid)
+        d=dict(row); d["config_json"]=_pi_json_loads(d.get("config_json"),{}); return d
+    async with get_connection() as db:
+        if is_default: await db.execute("UPDATE pi_scoring_configs SET is_default=0, updated_at=?", (now,))
+        await db.execute("""INSERT INTO pi_scoring_configs(id,name,config_json,is_default,created_at,updated_at) VALUES(?,?,?,?,?,?)""", (cid,name,cfg,1 if is_default else 0,now,now))
+        await db.commit(); cur=await db.execute("SELECT * FROM pi_scoring_configs WHERE id=?", (cid,)); row=await cur.fetchone(); await cur.close()
+    d=dict(row) if row else {"id":cid}; d["config_json"]=_pi_json_loads(d.get("config_json"),{}); d["is_default"]=bool(d.get("is_default")); return d
+
+async def pi_get_default_scoring_config() -> dict[str, Any] | None:
+    if uses_postgres():
+        pool=await get_pg_pool()
+        async with pool.acquire() as conn:
+            row=await conn.fetchrow("SELECT * FROM pi_scoring_configs WHERE is_default=TRUE ORDER BY updated_at DESC LIMIT 1")
+        if not row: return None
+        d=dict(row); d["config_json"]=_pi_json_loads(d.get("config_json"),{}); return d
+    async with get_connection() as db:
+        cur=await db.execute("SELECT * FROM pi_scoring_configs WHERE is_default=1 ORDER BY updated_at DESC LIMIT 1")
+        row=await cur.fetchone(); await cur.close()
+    if not row: return None
+    d=dict(row); d["config_json"]=_pi_json_loads(d.get("config_json"),{}); d["is_default"]=bool(d.get("is_default")); return d
+
+async def pi_save_product_score(run_id: str, score: dict[str, Any], config: dict[str, Any]) -> None:
+    sid=str(uuid.uuid4()); now=utc_now()
+    if uses_postgres():
+        pool=await get_pg_pool()
+        async with pool.acquire() as conn:
+            await conn.execute("""INSERT INTO pi_product_scores(id,run_id,sku,score,eligible,criteria_json,exclusions_json,reasons_json,config_json,created_at)
+                VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8::jsonb,$9::jsonb,NOW())""", sid,run_id,str(score.get('sku','')),float(score.get('score',0)),bool(score.get('eligible')),_pi_json_dumps(score.get('criteria',{})),_pi_json_dumps(score.get('exclusions',[])),_pi_json_dumps(score.get('reasons',[])),_pi_json_dumps(config))
+        return
+    async with get_connection() as db:
+        await db.execute("""INSERT INTO pi_product_scores(id,run_id,sku,score,eligible,criteria_json,exclusions_json,reasons_json,config_json,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+            (sid,run_id,str(score.get('sku','')),float(score.get('score',0)),1 if score.get('eligible') else 0,_pi_json_dumps(score.get('criteria',{})),_pi_json_dumps(score.get('exclusions',[])),_pi_json_dumps(score.get('reasons',[])),_pi_json_dumps(config),now))
+        await db.commit()
+
+async def pi_create_selection_run(mode: str, config: dict[str, Any], created_by: str = "") -> dict[str, Any]:
+    rid=str(uuid.uuid4()); now=utc_now(); cfg=_pi_json_dumps(config)
+    if uses_postgres():
+        pool=await get_pg_pool()
+        async with pool.acquire() as conn:
+            await conn.execute("""INSERT INTO pi_selection_runs(id,mode,status,target_count,min_count,max_count,config_json,created_by,created_at) VALUES($1,$2,'running',$3,$4,$5,$6::jsonb,$7,NOW())""",
+                rid,mode,int(config.get('target_count',600)),int(config.get('min_count',500)),int(config.get('max_count',750)),cfg,created_by)
+            row=await conn.fetchrow("SELECT * FROM pi_selection_runs WHERE id=$1", rid)
+        d=dict(row); d["config_json"]=_pi_json_loads(d.get("config_json"),{}); d["report_json"]=_pi_json_loads(d.get("report_json"),{}); return d
+    async with get_connection() as db:
+        await db.execute("""INSERT INTO pi_selection_runs(id,mode,status,target_count,min_count,max_count,config_json,created_by,created_at) VALUES(?,?,?,?,?,?,?,?,?)""",
+            (rid,mode,'running',int(config.get('target_count',600)),int(config.get('min_count',500)),int(config.get('max_count',750)),cfg,created_by,now))
+        await db.commit(); cur=await db.execute("SELECT * FROM pi_selection_runs WHERE id=?", (rid,)); row=await cur.fetchone(); await cur.close()
+    d=dict(row) if row else {"id":rid}; d["config_json"]=_pi_json_loads(d.get("config_json"),{}); d["report_json"]=_pi_json_loads(d.get("report_json"),{}); return d
+
+async def pi_finish_selection_run(run_id: str, status: str, report: dict[str, Any], selected_count: int, eligible_count: int, total_count: int, error_message: str = "") -> None:
+    now=utc_now(); rep=_pi_json_dumps(report)
+    if uses_postgres():
+        pool=await get_pg_pool()
+        async with pool.acquire() as conn:
+            await conn.execute("""UPDATE pi_selection_runs SET status=$2,selected_count=$3,eligible_count=$4,total_count=$5,report_json=$6::jsonb,error_message=$7,completed_at=NOW() WHERE id=$1""",
+                run_id,status,int(selected_count),int(eligible_count),int(total_count),rep,error_message)
+        return
+    async with get_connection() as db:
+        await db.execute("""UPDATE pi_selection_runs SET status=?,selected_count=?,eligible_count=?,total_count=?,report_json=?,error_message=?,completed_at=? WHERE id=?""",
+            (status,int(selected_count),int(eligible_count),int(total_count),rep,error_message,now,run_id))
+        await db.commit()
+
+async def pi_save_selection_item(run_id: str, rank: int, item: dict[str, Any], selected: bool, reason: str) -> None:
+    iid=str(uuid.uuid4()); now=utc_now(); snap={k:item.get(k) for k in ["sku","title","category","status","score","criteria"]}
+    if uses_postgres():
+        pool=await get_pg_pool()
+        async with pool.acquire() as conn:
+            await conn.execute("""INSERT INTO pi_selection_items(id,run_id,sku,rank,score,selected,decision_reason,exclusions_json,snapshot_json,created_at)
+                VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,NOW())""", iid,run_id,str(item.get('sku','')),int(rank),float(item.get('score',0)),bool(selected),reason,_pi_json_dumps(item.get('exclusions',[])),_pi_json_dumps(snap))
+        return
+    async with get_connection() as db:
+        await db.execute("""INSERT INTO pi_selection_items(id,run_id,sku,rank,score,selected,decision_reason,exclusions_json,snapshot_json,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+            (iid,run_id,str(item.get('sku','')),int(rank),float(item.get('score',0)),1 if selected else 0,reason,_pi_json_dumps(item.get('exclusions',[])),_pi_json_dumps(snap),now))
+        await db.commit()
+
+async def pi_get_selection_run(run_id: str) -> dict[str, Any] | None:
+    if uses_postgres():
+        pool=await get_pg_pool()
+        async with pool.acquire() as conn:
+            row=await conn.fetchrow("SELECT * FROM pi_selection_runs WHERE id=$1", run_id)
+            items=await conn.fetch("SELECT * FROM pi_selection_items WHERE run_id=$1 ORDER BY selected DESC, rank ASC LIMIT 1000", run_id)
+        if not row: return None
+        d=dict(row); d["config_json"]=_pi_json_loads(d.get("config_json"),{}); d["report_json"]=_pi_json_loads(d.get("report_json"),{})
+        d["items"]=[{**dict(r),"exclusions_json":_pi_json_loads(r.get("exclusions_json"),[]),"snapshot_json":_pi_json_loads(r.get("snapshot_json"),{})} for r in items]; return d
+    async with get_connection() as db:
+        cur=await db.execute("SELECT * FROM pi_selection_runs WHERE id=?", (run_id,)); row=await cur.fetchone(); await cur.close()
+        if not row: return None
+        cur=await db.execute("SELECT * FROM pi_selection_items WHERE run_id=? ORDER BY selected DESC, rank ASC LIMIT 1000", (run_id,)); items=await cur.fetchall(); await cur.close()
+    d=dict(row); d["config_json"]=_pi_json_loads(d.get("config_json"),{}); d["report_json"]=_pi_json_loads(d.get("report_json"),{})
+    out=[]
+    for r in items:
+        it=dict(r); it["selected"]=bool(it.get("selected")); it["exclusions_json"]=_pi_json_loads(it.get("exclusions_json"),[]); it["snapshot_json"]=_pi_json_loads(it.get("snapshot_json"),{}); out.append(it)
+    d["items"]=out; return d
+
+async def pi_list_selection_runs(limit: int = 20) -> list[dict[str, Any]]:
+    limit=min(max(int(limit or 20),1),100)
+    if uses_postgres():
+        pool=await get_pg_pool()
+        async with pool.acquire() as conn:
+            rows=await conn.fetch("SELECT id,mode,status,target_count,min_count,max_count,selected_count,eligible_count,total_count,error_message,created_by,created_at,completed_at FROM pi_selection_runs ORDER BY created_at DESC LIMIT $1", limit)
+        return [dict(r) for r in rows]
+    async with get_connection() as db:
+        cur=await db.execute("SELECT id,mode,status,target_count,min_count,max_count,selected_count,eligible_count,total_count,error_message,created_by,created_at,completed_at FROM pi_selection_runs ORDER BY created_at DESC LIMIT ?", (limit,))
+        rows=await cur.fetchall(); await cur.close()
+    return [dict(r) for r in rows]
+
+async def pi_create_export_job(mode: str, target: str, selection_run_id: str, requested_count: int, payload: dict[str, Any], created_by: str = "", idempotency_key: str = "") -> dict[str, Any]:
+    import hashlib
+    eid=str(uuid.uuid4()); now=utc_now(); idem=idempotency_key or hashlib.sha256(f"{mode}:{target}:{selection_run_id}:{_pi_json_dumps(payload)}".encode()).hexdigest()
+    if uses_postgres():
+        pool=await get_pg_pool()
+        async with pool.acquire() as conn:
+            existing = await conn.fetchrow("SELECT * FROM pi_export_jobs WHERE idempotency_key=$1 LIMIT 1", idem) if idem else None
+            if existing: d=dict(existing); d["payload_json"]=_pi_json_loads(d.get("payload_json"),{}); d["result_json"]=_pi_json_loads(d.get("result_json"),{}); d["idempotent_reuse"]=True; return d
+            await conn.execute("""INSERT INTO pi_export_jobs(id,idempotency_key,mode,target,status,selection_run_id,requested_count,payload_json,created_by,created_at,updated_at) VALUES($1,$2,$3,$4,'completed',$5,$6,$7::jsonb,$8,NOW(),NOW())""", eid,idem,mode,target,selection_run_id,int(requested_count),_pi_json_dumps(payload),created_by)
+            row=await conn.fetchrow("SELECT * FROM pi_export_jobs WHERE id=$1", eid)
+        d=dict(row); d["payload_json"]=_pi_json_loads(d.get("payload_json"),{}); d["result_json"]=_pi_json_loads(d.get("result_json"),{}); return d
+    async with get_connection() as db:
+        if idem:
+            cur=await db.execute("SELECT * FROM pi_export_jobs WHERE idempotency_key=? LIMIT 1", (idem,)); existing=await cur.fetchone(); await cur.close()
+            if existing: d=dict(existing); d["payload_json"]=_pi_json_loads(d.get("payload_json"),{}); d["result_json"]=_pi_json_loads(d.get("result_json"),{}); d["idempotent_reuse"]=True; return d
+        await db.execute("""INSERT INTO pi_export_jobs(id,idempotency_key,mode,target,status,selection_run_id,requested_count,payload_json,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+            (eid,idem,mode,target,'completed',selection_run_id,int(requested_count),_pi_json_dumps(payload),created_by,now,now))
+        await db.commit(); cur=await db.execute("SELECT * FROM pi_export_jobs WHERE id=?", (eid,)); row=await cur.fetchone(); await cur.close()
+    d=dict(row) if row else {"id":eid}; d["payload_json"]=_pi_json_loads(d.get("payload_json"),{}); d["result_json"]=_pi_json_loads(d.get("result_json"),{}); return d
+
+async def pi_update_export_job(job_id: str, **fields: Any) -> None:
+    if not fields: return
+    now=utc_now(); fields["updated_at"]=now
+    if uses_postgres():
+        sets=[]; vals=[]; i=1
+        for k,v in fields.items():
+            if k in {"payload_json","result_json"}: sets.append(f"{k}=${i}::jsonb"); vals.append(_pi_json_dumps(v))
+            else: sets.append(f"{k}=${i}"); vals.append(v)
+            i+=1
+        vals.append(job_id)
+        pool=await get_pg_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(f"UPDATE pi_export_jobs SET {', '.join(sets)} WHERE id=${i}", *vals)
+        return
+    sets=[]; vals=[]
+    for k,v in fields.items():
+        if k in {"payload_json","result_json"}: v=_pi_json_dumps(v)
+        sets.append(f"{k}=?"); vals.append(v)
+    vals.append(job_id)
+    async with get_connection() as db:
+        await db.execute(f"UPDATE pi_export_jobs SET {', '.join(sets)} WHERE id=?", tuple(vals)); await db.commit()

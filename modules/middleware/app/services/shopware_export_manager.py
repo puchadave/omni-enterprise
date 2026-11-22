@@ -278,6 +278,31 @@ class ExportManager:
                     item.started_at = datetime.now(timezone.utc).isoformat()
                     self._processing[item.queue_id] = item
 
+                    # Export approval gate (product intelligence / sales AI)
+                    try:
+                        from services.export_gate import is_export_approved, REVIEW_REQUIRED
+                        gate = await is_export_approved(item.product_sku, "shopware", payload=item.payload)
+                        if not gate.allowed:
+                            item.status = EXPORT_RELEASE_REQUIRED
+                            item.error_message = gate.reason
+                            item.completed_at = None
+                            item.updated_at = datetime.now(timezone.utc).isoformat()
+                            self._errors.append(item)
+                            logger.info("Export blocked by gate: %s sku=%s reason=%s", item.queue_id, item.product_sku, gate.reason)
+                            processed += 1
+                            self._processing.pop(item.queue_id, None)
+                            return
+                    except Exception as _ge:
+                        # fail-closed in strict mode, but don't crash queue
+                        if str(__import__('os').getenv('EXPORT_GATE_MODE','review_required')).lower() == 'strict':
+                            item.status = EXPORT_RELEASE_REQUIRED
+                            item.error_message = f"gate_error:{_ge}"
+                            item.updated_at = datetime.now(timezone.utc).isoformat()
+                            self._errors.append(item)
+                            processed += 1
+                            self._processing.pop(item.queue_id, None)
+                            return
+
                     # Export based on mode
                     result = await self._export_item(item)
 

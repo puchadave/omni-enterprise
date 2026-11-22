@@ -204,29 +204,43 @@ class AutonomousExportEngine:
             validation_result=validation_result,
         )
 
-        # Step 4: Add to queue
+        # Step 4: Add to queue (gated by product intelligence / sales AI)
         queue_id = str(uuid4())
+        gate_allowed = True
+        gate_reason = "no_gate"
+        try:
+            from services.export_gate import is_export_approved
+            gate = await is_export_approved(product_sku, "google", payload=export_record.get("payload_json"))
+            gate_allowed = gate.allowed
+            gate_reason = gate.reason
+        except Exception as _ge:
+            gate_allowed = False
+            gate_reason = f"gate_error:{_ge}"
+
+        initial_status = EXPORT_PENDING if gate_allowed else EXPORT_VALIDATION
         item = ExportQueueItem(
             export_id=queue_id,
             account_id=account_id,
             product_sku=product_sku,
             offer_id=export_record["offer_id"],
             payload=export_record["payload_json"],
-            status=EXPORT_PENDING,
+            status=initial_status,
             max_retries=export_record["max_retries"],
             validation_score=export_record["validation_score"],
             validation_errors=export_record["validation_errors"],
             validation_warnings=export_record["validation_warnings"],
         )
+        if not gate_allowed:
+            item.error_message = f"blocked_by_gate:{gate_reason}"
         self._queue.append(item)
 
         logger.info(
-            "Quality check passed - queued for Google export: %s (SKU: %s, score: %d)",
-            queue_id, product_sku, validation_result.get("score", 0),
+            "Quality check processed for Google export: %s (SKU: %s, score: %d, gate=%s)",
+            queue_id, product_sku, validation_result.get("score", 0), gate_reason,
         )
 
-        # Step 5: Auto-export if enabled
-        if self.auto_export:
+        # Step 5: Auto-export if enabled and approved
+        if self.auto_export and gate_allowed:
             asyncio.create_task(self.process_queue())
 
         return queue_id
