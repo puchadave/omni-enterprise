@@ -1,0 +1,182 @@
+{% extends "base.html" %}
+{% block title %}Marketplace Command Center | OMNI-CORE{% endblock %}
+{% block content %}
+<div x-data="mcc()" x-init="init()" class="space-y-4 max-w-[1600px] mx-auto">
+  <div class="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-3">
+    <div>
+      <h1 class="text-2xl md:text-3xl font-bold">Marketplace Command Center</h1>
+      <p class="text-slate-400">Zentrale Steuerung für Marketplace-Verbindungen, KI-Produktauswahl, Export-Jobs, Matrix und Audit. Keine Fake-Online-Status: Listing-Status wird nur nach Connector-Rückmeldung gesetzt.</p>
+    </div>
+    <div class="flex gap-2 flex-wrap">
+      <button class="btn btn-secondary" @click="loadAll()">Aktualisieren</button>
+      <button class="btn btn-primary" @click="showAdd=true">Marketplace hinzufügen</button>
+    </div>
+  </div>
+
+  <template x-if="error"><div class="banner banner-error"><div class="font-medium">Fehler</div><div class="text-sm mt-1" x-text="error"></div></div></template>
+  <template x-if="notice"><div class="banner banner-success"><div x-text="notice"></div></div></template>
+
+  <div class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3">
+    <template x-for="card in overviewCards" :key="card.label">
+      <div class="card p-3"><div class="text-xs text-slate-400" x-text="card.label"></div><div class="text-xl font-bold mt-1" x-text="card.value"></div></div>
+    </template>
+  </div>
+
+  <div class="card p-4">
+    <div class="flex items-center justify-between gap-2 mb-3">
+      <div><h2 class="font-semibold">Marketplace-Karten</h2><p class="text-xs text-slate-400">Verbindung, Auswahl, Export, Fehler, letzter Sync/Health.</p></div>
+    </div>
+    <div class="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
+      <template x-for="mp in marketplaces" :key="mp.id">
+        <div class="border border-slate-800 rounded-lg p-3 bg-slate-950/40 cursor-pointer hover:border-indigo-600" @click="selectMarketplace(mp.id)">
+          <div class="flex items-start justify-between gap-2">
+            <div>
+              <div class="font-semibold" x-text="mp.name"></div>
+              <div class="text-xs text-slate-400" x-text="mp.connector_type + ' · ' + (mp.country||'') + ' · ' + (mp.currency||'')"></div>
+            </div>
+            <span class="badge" :class="uiBadgeClass(mp.last_health_status||mp.status)" x-text="uiStatusLabel(mp.last_health_status||mp.status)"></span>
+          </div>
+          <div class="grid grid-cols-3 gap-2 mt-3 text-xs">
+            <div><div class="text-slate-500">Online</div><div class="font-semibold" x-text="mp.metrics?.listed ?? 0"></div></div>
+            <div><div class="text-slate-500">KI-Auswahl</div><div class="font-semibold" x-text="mp.metrics?.ai_selected ?? 0"></div></div>
+            <div><div class="text-slate-500">Ausstehend</div><div class="font-semibold" x-text="mp.metrics?.pending ?? 0"></div></div>
+            <div><div class="text-slate-500">Fehler</div><div class="font-semibold text-red-300" x-text="mp.metrics?.errors ?? 0"></div></div>
+            <div><div class="text-slate-500">Min Score</div><div class="font-semibold" x-text="mp.min_score"></div></div>
+            <div><div class="text-slate-500">Produkte</div><div class="font-semibold" x-text="mp.metrics?.total_products ?? 0"></div></div>
+          </div>
+          <div class="text-[11px] text-slate-500 mt-2">Last health: <span x-text="mp.last_health_at||'nie'"></span></div>
+          <div class="flex gap-2 mt-3">
+            <button class="btn btn-secondary !py-1 !px-2 !text-xs" @click.stop="testHealth(mp.id)">Health</button>
+            <button class="btn btn-secondary !py-1 !px-2 !text-xs" @click.stop="runSelection(mp.id)">KI-Auswahl</button>
+          </div>
+        </div>
+      </template>
+      <div x-show="marketplaces.length===0" class="empty-state col-span-full"><div class="icon">🛒</div><div class="title">Keine Marketplaces konfiguriert</div><div class="text-sm">Füge Shopify oder einen anderen Connector hinzu. Ohne echte Credentials kein Fake-Status.</div></div>
+    </div>
+  </div>
+
+  <div class="grid xl:grid-cols-3 gap-4">
+    <div class="card p-4 xl:col-span-2">
+      <div class="flex items-center justify-between mb-3"><div><h2 class="font-semibold">Produkt-Marketplace-Matrix</h2><p class="text-xs text-slate-400">Auswahlstatus, Score, Listing-Status, externe ID, Fehler.</p></div><div class="text-xs text-slate-500" x-text="matrix.rows?.length||0 + ' Produkte'"></div></div>
+      <div class="table-wrap max-h-[520px]">
+        <table class="tbl">
+          <thead><tr><th>SKU</th><th>Produkt</th><template x-for="mp in matrix.marketplaces||[]" :key="mp.id"><th x-text="mp.name"></th></template></tr></thead>
+          <tbody>
+            <template x-for="row in matrix.rows||[]" :key="row.sku">
+              <tr>
+                <td class="font-mono text-xs" x-text="row.sku"></td>
+                <td><div class="font-medium" x-text="row.title||row.sku"></div><div class="text-xs text-slate-500" x-text="row.status"></div></td>
+                <template x-for="mp in matrix.marketplaces||[]" :key="mp.id+row.sku">
+                  <td>
+                    <div class="text-xs" x-text="(row.marketplaces[mp.id]?.selection_status||'NOT_SELECTED')"></div>
+                    <div class="text-[11px] text-slate-400">Score: <span x-text="row.marketplaces[mp.id]?.score ?? '-' "></span></div>
+                    <span class="badge mt-1" :class="uiBadgeClass(row.marketplaces[mp.id]?.listing_status||'NOT_LISTED')" x-text="row.marketplaces[mp.id]?.listing_status||'NOT_LISTED'"></span>
+                    <div class="text-[11px] text-red-300 mt-1" x-show="row.marketplaces[mp.id]?.last_error" x-text="row.marketplaces[mp.id]?.last_error"></div>
+                  </td>
+                </template>
+              </tr>
+            </template>
+            <tr x-show="!(matrix.rows||[]).length"><td colspan="99" class="text-center text-slate-500 py-8">Keine Produktdaten vorhanden. Shopware-Import/Synchronisation ausführen.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card p-4 space-y-4">
+      <div>
+        <h2 class="font-semibold">Export Manager</h2>
+        <p class="text-xs text-slate-400">Dry Run / Test / Production. Production benötigt explizite Freigabe.</p>
+      </div>
+      <label class="block"><div class="label">Marketplace</div>
+        <select class="select" x-model="exportForm.marketplace_id"><option value="">Auswählen</option><template x-for="mp in marketplaces" :key="mp.id"><option :value="mp.id" x-text="mp.name"></option></template></select>
+      </label>
+      <label class="block"><div class="label">Modus</div>
+        <select class="select" x-model="exportForm.mode"><option value="dry_run">Dry Run</option><option value="test">Test Export</option><option value="production">Production Export (Freigabe nötig)</option></select>
+      </label>
+      <label class="block"><div class="label">Selection Status</div>
+        <select class="select" x-model="exportForm.selection_status"><option value="AI_SELECTED">AI_SELECTED</option><option value="APPROVED">APPROVED</option><option value="READY_TO_EXPORT">READY_TO_EXPORT</option></select>
+      </label>
+      <label class="block"><div class="label">Limit</div><input class="input" type="number" min="1" max="500" x-model.number="exportForm.limit"></label>
+      <label class="flex items-center gap-2 text-sm" x-show="exportForm.mode==='production'"><input type="checkbox" x-model="exportForm.approved"> Ich bestätige Production-Export explizit</label>
+      <div class="flex gap-2">
+        <button class="btn btn-secondary" @click="runExport('dry_run')">Dry Run</button>
+        <button class="btn btn-primary" @click="runExport(exportForm.mode)" :disabled="busy" x-text="busy?'Läuft...':'Export starten'"></button>
+      </div>
+      <div class="text-xs text-slate-400" x-show="lastJob">Letzter Job: <span class="font-mono" x-text="lastJob?.id"></span> · <span x-text="lastJob?.status"></span> · ok <span x-text="lastJob?.success_items"></span> / fail <span x-text="lastJob?.failed_items"></span></div>
+    </div>
+  </div>
+
+  <div class="grid xl:grid-cols-2 gap-4">
+    <div class="card p-4">
+      <h2 class="font-semibold mb-2">Export-Jobs</h2>
+      <div class="table-wrap max-h-80"><table class="tbl"><thead><tr><th>ID</th><th>Marketplace</th><th>Modus</th><th>Status</th><th>OK/Fail/Skip</th><th>Erstellt</th></tr></thead><tbody>
+        <template x-for="j in jobs" :key="j.id"><tr><td class="font-mono text-xs" x-text="j.id"></td><td x-text="j.marketplace_id"></td><td x-text="j.mode"></td><td><span class="badge" :class="uiBadgeClass(j.status)" x-text="j.status"></span></td><td x-text="(j.success_items||0)+'/'+(j.failed_items||0)+'/'+(j.skipped_items||0)"></td><td class="text-xs text-slate-400" x-text="j.created_at"></td></tr></template>
+        <tr x-show="!jobs.length"><td colspan="99" class="text-center text-slate-500 py-6">Keine Jobs.</td></tr>
+      </tbody></table></div>
+    </div>
+    <div class="card p-4">
+      <h2 class="font-semibold mb-2">Audit / Fehler</h2>
+      <div class="table-wrap max-h-80"><table class="tbl"><thead><tr><th>Zeit</th><th>Aktion</th><th>Marketplace</th><th>SKU</th><th>Nachricht</th></tr></thead><tbody>
+        <template x-for="a in audit" :key="a.id"><tr><td class="text-xs text-slate-400" x-text="a.created_at"></td><td class="text-xs" x-text="a.action"></td><td class="text-xs font-mono" x-text="a.marketplace_id"></td><td class="text-xs font-mono" x-text="a.product_sku"></td><td class="text-xs" x-text="a.message"></td></tr></template>
+        <tr x-show="!audit.length"><td colspan="99" class="text-center text-slate-500 py-6">Keine Audit-Events.</td></tr>
+      </tbody></table></div>
+    </div>
+  </div>
+
+  <div x-show="showAdd" x-cloak class="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+    <div class="card p-5 w-full max-w-2xl space-y-3">
+      <div class="flex items-center justify-between"><h3 class="font-semibold text-lg">Marketplace hinzufügen</h3><button class="btn btn-ghost !py-1" @click="showAdd=false">Schließen</button></div>
+      <div class="grid md:grid-cols-2 gap-3">
+        <label><div class="label">Name</div><input class="input" x-model="newMp.name" placeholder="Shopify DE"></label>
+        <label><div class="label">Connector</div><select class="select" x-model="newMp.connector_type"><option value="shopify">shopify</option><option value="amazon">amazon (Adapter nötig)</option><option value="ebay">ebay (Adapter nötig)</option></select></label>
+        <label><div class="label">Shop Domain / Base URL</div><input class="input" x-model="newMp.config.shop_domain" placeholder="myshop.myshopify.com"></label>
+        <label><div class="label">Access Token (wird nicht angezeigt)</div><input class="input" type="password" x-model="newMp.credentials.access_token" placeholder="shpat_..."></label>
+        <label><div class="label">Currency</div><input class="input" x-model="newMp.currency"></label>
+        <label><div class="label">Country</div><input class="input" x-model="newMp.country"></label>
+        <label><div class="label">Min Score</div><input class="input" type="number" x-model.number="newMp.min_score"></label>
+        <label><div class="label">Status</div><select class="select" x-model="newMp.status"><option value="active">active</option><option value="inactive">inactive</option></select></label>
+      </div>
+      <div class="text-xs text-slate-400">Credentials werden nur serverseitig gespeichert; API-Antworten maskieren Secrets.</div>
+      <div class="flex gap-2 justify-end"><button class="btn btn-secondary" @click="showAdd=false">Abbrechen</button><button class="btn btn-primary" @click="saveMarketplace()">Speichern</button></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function mcc(){return{
+  error:'', notice:'', busy:false, showAdd:false,
+  marketplaces:[], overview:{}, matrix:{marketplaces:[],rows:[]}, jobs:[], audit:[], lastJob:null,
+  overviewCards:[],
+  exportForm:{marketplace_id:'', mode:'dry_run', selection_status:'AI_SELECTED', limit:50, approved:false, approved_by:''},
+  newMp:{name:'', connector_type:'shopify', status:'active', currency:'EUR', country:'DE', language:'de-DE', min_score:70, config:{shop_domain:''}, credentials:{access_token:''}},
+  async init(){ await this.loadAll(); },
+  async loadAll(){ this.error=''; try{
+    const [ov, mps, mx, jobs, audit] = await Promise.all([
+      apiFetch('/api/marketplace-command/overview'),
+      apiFetch('/api/marketplace-command/marketplaces'),
+      apiFetch('/api/marketplace-command/matrix?limit=200'),
+      apiFetch('/api/marketplace-command/export/jobs?limit=50'),
+      apiFetch('/api/marketplace-command/audit?limit=50'),
+    ]);
+    this.overview=ov.overview||{}; this.marketplaces=mps.marketplaces||[]; this.matrix=mx||{marketplaces:[],rows:[]}; this.jobs=jobs.jobs||[]; this.audit=audit.items||[];
+    const o=this.overview;
+    this.overviewCards=[
+      {label:'Marketplaces',value:o.marketplaces_total??0},{label:'Aktiv',value:o.marketplaces_active??0},{label:'KI-Auswahl',value:o.ai_selected_total??0},{label:'Online',value:o.listed_online_total??0},
+      {label:'Export-Fehler',value:o.export_errors_total??0},{label:'Jobs pending',value:o.export_jobs_pending??0},{label:'Matrix Produkte',value:(this.matrix.rows||[]).length},{label:'Audit Events',value:(this.audit||[]).length}
+    ];
+    if(!this.exportForm.marketplace_id && this.marketplaces[0]) this.exportForm.marketplace_id=this.marketplaces[0].id;
+  }catch(e){ this.error=e.message||String(e); }},
+  selectMarketplace(id){ this.exportForm.marketplace_id=id; this.notice='Marketplace ausgewählt: '+id; setTimeout(()=>this.notice='',1500); },
+  async saveMarketplace(){ this.error=''; try{ await apiFetch('/api/marketplace-command/marketplaces',{method:'POST', body:JSON.stringify(this.newMp)}); this.showAdd=false; this.notice='Marketplace gespeichert'; this.newMp.credentials.access_token=''; await this.loadAll(); }catch(e){ this.error=e.message; }},
+  async testHealth(id){ this.error=''; try{ const r=await apiFetch(`/api/marketplace-command/marketplaces/${id}/health`,{method:'POST'}); this.notice=`Health ${id}: ${r.health?.status||'unknown'}`; await this.loadAll(); }catch(e){ this.error=e.message; }},
+  async runSelection(id){ this.error=''; this.busy=true; try{ const r=await apiFetch('/api/marketplace-command/selection/run',{method:'POST', body:JSON.stringify({marketplace_id:id, limit:500, persist:true})}); this.notice=`KI-Auswahl: ${r.count} Produkte bewertet`; await this.loadAll(); }catch(e){ this.error=e.message; } this.busy=false; },
+  async runExport(mode){ this.error=''; this.busy=true; try{
+    const body={...this.exportForm, mode}; if(mode!=='production') body.approved=false;
+    const path = mode==='dry_run' ? '/api/marketplace-command/export/preview' : '/api/marketplace-command/export/start';
+    const r=await apiFetch(path,{method:'POST', body:JSON.stringify(body)});
+    this.lastJob=r.job; this.notice=`Export ${mode}: ${r.summary?.success||0} ok, ${r.summary?.failed||0} failed`; await this.loadAll();
+  }catch(e){ this.error=e.message; } this.busy=false; }
+}}
+</script>
+{% endblock %}

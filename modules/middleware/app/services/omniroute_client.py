@@ -112,22 +112,42 @@ class OmniRouteClient:
 
     async def get_ai_trend_analysis(self, prompt: str) -> Optional[Dict[str, Any]]:
         """Request a structured JSON fashion trend analysis from OmniRoute."""
+        import os
         url = f"{self.base_url}/chat/completions"
-        payload = {
-            "model": "gemini-2.5-flash",
-            "messages": [
-                {"role": "system", "content": "You are a fashion trend analyst. Always output valid JSON."},
-                {"role": "user", "content": prompt},
-            ],
-            "response_format": {"type": "json_object"},
-        }
+        model = (
+            os.getenv("OMNIROUTE_TREND_MODEL")
+            or os.getenv("OMNIROUTE_DEFAULT_COMBO")
+            or os.getenv("OMNIROUTE_SALES_COMBO")
+            or "auto"
+        )
+        messages = [
+            {"role": "system", "content": "You are a fashion trend analyst. Return ONLY valid JSON (no markdown)."},
+            {"role": "user", "content": prompt},
+        ]
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
+                payload = {
+                    "model": model,
+                    "messages": messages,
+                    "response_format": {"type": "json_object"},
+                }
                 response = await client.post(url, headers=self.headers, json=payload)
+                if response.status_code == 400:
+                    payload = {"model": model, "messages": messages}
+                    response = await client.post(url, headers=self.headers, json=payload)
                 response.raise_for_status()
                 data = response.json()
                 content_str = data["choices"][0]["message"]["content"]
-                return json.loads(content_str)
+                if isinstance(content_str, dict):
+                    return content_str
+                s = str(content_str or "").strip()
+                try:
+                    return json.loads(s)
+                except Exception:
+                    jstart = s.find("{"); jend = s.rfind("}")
+                    if jstart != -1 and jend != -1:
+                        return json.loads(s[jstart:jend+1])
+                    return None
         except Exception as exc:
             logger.error("OmniRoute AI analysis failed: %s", exc)
             return None

@@ -209,6 +209,194 @@ POSTGRES_SCHEMA: tuple[str, ...] = (
     """,
     "CREATE INDEX IF NOT EXISTS idx_system_logs_created_at ON system_logs(created_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_system_logs_context_json ON system_logs USING GIN (context_json)",
+    # ── Marketplace Command Center ────────────────────────────────────────
+    """
+    CREATE TABLE IF NOT EXISTS marketplaces (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        connector_type TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'inactive',
+        config_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        credentials_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        currency TEXT NOT NULL DEFAULT 'EUR',
+        country TEXT NOT NULL DEFAULT 'DE',
+        language TEXT NOT NULL DEFAULT 'de-DE',
+        min_score NUMERIC(6,2) NOT NULL DEFAULT 70,
+        target_products INTEGER NOT NULL DEFAULT 0,
+        min_products INTEGER NOT NULL DEFAULT 0,
+        max_products INTEGER NOT NULL DEFAULT 0,
+        require_available_stock BOOLEAN NOT NULL DEFAULT TRUE,
+        require_valid_images BOOLEAN NOT NULL DEFAULT TRUE,
+        require_valid_pricing BOOLEAN NOT NULL DEFAULT TRUE,
+        require_category_mapping BOOLEAN NOT NULL DEFAULT FALSE,
+        sync_interval_minutes INTEGER NOT NULL DEFAULT 60,
+        last_sync_at TIMESTAMPTZ,
+        last_health_at TIMESTAMPTZ,
+        last_health_status TEXT NOT NULL DEFAULT '',
+        last_health_message TEXT NOT NULL DEFAULT '',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_marketplaces_type ON marketplaces(connector_type)",
+    "CREATE INDEX IF NOT EXISTS idx_marketplaces_status ON marketplaces(status)",
+    """
+    CREATE TABLE IF NOT EXISTS marketplace_connections (
+        id TEXT PRIMARY KEY,
+        marketplace_id TEXT NOT NULL,
+        name TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'disconnected',
+        config_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        credentials_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        last_test_at TIMESTAMPTZ,
+        last_test_status TEXT NOT NULL DEFAULT '',
+        last_test_message TEXT NOT NULL DEFAULT '',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_marketplace_connections_mp ON marketplace_connections(marketplace_id)",
+    """
+    CREATE TABLE IF NOT EXISTS marketplace_selections (
+        id TEXT PRIMARY KEY,
+        marketplace_id TEXT NOT NULL,
+        product_sku TEXT NOT NULL,
+        selection_status TEXT NOT NULL DEFAULT 'NOT_SELECTED',
+        approval_status TEXT NOT NULL DEFAULT 'PENDING',
+        score NUMERIC(6,2) NOT NULL DEFAULT 0,
+        eligible BOOLEAN NOT NULL DEFAULT FALSE,
+        reasons_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+        blockers_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+        recommendations_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+        criteria_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        selected_by TEXT NOT NULL DEFAULT 'ai',
+        selected_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(marketplace_id, product_sku)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_marketplace_selections_mp ON marketplace_selections(marketplace_id)",
+    "CREATE INDEX IF NOT EXISTS idx_marketplace_selections_sku ON marketplace_selections(product_sku)",
+    """
+    CREATE TABLE IF NOT EXISTS marketplace_products (
+        id TEXT PRIMARY KEY,
+        marketplace_id TEXT NOT NULL,
+        product_sku TEXT NOT NULL,
+        external_product_id TEXT NOT NULL DEFAULT '',
+        canonical_product_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        marketplace_content_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        marketplace_pricing_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        marketplace_category_id TEXT NOT NULL DEFAULT '',
+        attribute_mapping_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        listing_status TEXT NOT NULL DEFAULT 'NOT_LISTED',
+        sync_status TEXT NOT NULL DEFAULT 'never',
+        last_error TEXT NOT NULL DEFAULT '',
+        last_synced_at TIMESTAMPTZ,
+        last_exported_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(marketplace_id, product_sku)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_marketplace_products_mp ON marketplace_products(marketplace_id)",
+    "CREATE INDEX IF NOT EXISTS idx_marketplace_products_sku ON marketplace_products(product_sku)",
+    "CREATE INDEX IF NOT EXISTS idx_marketplace_products_status ON marketplace_products(listing_status)",
+    """
+    CREATE TABLE IF NOT EXISTS marketplace_listings (
+        id TEXT PRIMARY KEY,
+        marketplace_id TEXT NOT NULL,
+        product_sku TEXT NOT NULL,
+        external_listing_id TEXT NOT NULL DEFAULT '',
+        listing_status TEXT NOT NULL DEFAULT 'NOT_LISTED',
+        last_status_check_at TIMESTAMPTZ,
+        status_source TEXT NOT NULL DEFAULT '',
+        raw_status_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        url TEXT NOT NULL DEFAULT '',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(marketplace_id, product_sku)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_marketplace_listings_mp ON marketplace_listings(marketplace_id)",
+    """
+    CREATE TABLE IF NOT EXISTS marketplace_export_jobs (
+        id TEXT PRIMARY KEY,
+        marketplace_id TEXT NOT NULL,
+        mode TEXT NOT NULL DEFAULT 'dry_run',
+        status TEXT NOT NULL DEFAULT 'pending',
+        requested_by TEXT NOT NULL DEFAULT '',
+        approved_by TEXT NOT NULL DEFAULT '',
+        approved_at TIMESTAMPTZ,
+        total_items INTEGER NOT NULL DEFAULT 0,
+        success_items INTEGER NOT NULL DEFAULT 0,
+        failed_items INTEGER NOT NULL DEFAULT 0,
+        skipped_items INTEGER NOT NULL DEFAULT 0,
+        payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        result_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        error_message TEXT NOT NULL DEFAULT '',
+        started_at TIMESTAMPTZ,
+        finished_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_marketplace_export_jobs_mp ON marketplace_export_jobs(marketplace_id)",
+    "CREATE INDEX IF NOT EXISTS idx_marketplace_export_jobs_status ON marketplace_export_jobs(status)",
+    """
+    CREATE TABLE IF NOT EXISTS marketplace_export_items (
+        id TEXT PRIMARY KEY,
+        job_id TEXT NOT NULL,
+        marketplace_id TEXT NOT NULL,
+        product_sku TEXT NOT NULL,
+        action TEXT NOT NULL DEFAULT 'export',
+        status TEXT NOT NULL DEFAULT 'pending',
+        external_id TEXT NOT NULL DEFAULT '',
+        request_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        response_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        error_message TEXT NOT NULL DEFAULT '',
+        idempotency_key TEXT NOT NULL DEFAULT '',
+        started_at TIMESTAMPTZ,
+        finished_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_marketplace_export_items_job ON marketplace_export_items(job_id)",
+    "CREATE INDEX IF NOT EXISTS idx_marketplace_export_items_mp_sku ON marketplace_export_items(marketplace_id, product_sku)",
+    """
+    CREATE TABLE IF NOT EXISTS marketplace_sync_jobs (
+        id TEXT PRIMARY KEY,
+        marketplace_id TEXT NOT NULL,
+        job_type TEXT NOT NULL DEFAULT 'sync',
+        status TEXT NOT NULL DEFAULT 'pending',
+        payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        result_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        error_message TEXT NOT NULL DEFAULT '',
+        started_at TIMESTAMPTZ,
+        finished_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_marketplace_sync_jobs_mp ON marketplace_sync_jobs(marketplace_id)",
+    """
+    CREATE TABLE IF NOT EXISTS marketplace_audit_events (
+        id TEXT PRIMARY KEY,
+        marketplace_id TEXT NOT NULL DEFAULT '',
+        product_sku TEXT NOT NULL DEFAULT '',
+        job_id TEXT NOT NULL DEFAULT '',
+        actor TEXT NOT NULL DEFAULT '',
+        action TEXT NOT NULL,
+        severity TEXT NOT NULL DEFAULT 'info',
+        message TEXT NOT NULL DEFAULT '',
+        details_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_marketplace_audit_mp ON marketplace_audit_events(marketplace_id)",
+    "CREATE INDEX IF NOT EXISTS idx_marketplace_audit_sku ON marketplace_audit_events(product_sku)",
+    "CREATE INDEX IF NOT EXISTS idx_marketplace_audit_created ON marketplace_audit_events(created_at DESC)",
     """
     CREATE TABLE IF NOT EXISTS import_runs (
         id BIGSERIAL PRIMARY KEY,
@@ -1914,6 +2102,176 @@ CREATE TABLE IF NOT EXISTS system_logs (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_system_logs_created_at ON system_logs(created_at DESC);
+-- ── Marketplace Command Center (SQLite) ──────────────────────────────────
+CREATE TABLE IF NOT EXISTS marketplaces (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    connector_type TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'inactive',
+    config_json TEXT NOT NULL DEFAULT '{}',
+    credentials_json TEXT NOT NULL DEFAULT '{}',
+    currency TEXT NOT NULL DEFAULT 'EUR',
+    country TEXT NOT NULL DEFAULT 'DE',
+    language TEXT NOT NULL DEFAULT 'de-DE',
+    min_score REAL NOT NULL DEFAULT 70,
+    target_products INTEGER NOT NULL DEFAULT 0,
+    min_products INTEGER NOT NULL DEFAULT 0,
+    max_products INTEGER NOT NULL DEFAULT 0,
+    require_available_stock INTEGER NOT NULL DEFAULT 1,
+    require_valid_images INTEGER NOT NULL DEFAULT 1,
+    require_valid_pricing INTEGER NOT NULL DEFAULT 1,
+    require_category_mapping INTEGER NOT NULL DEFAULT 0,
+    sync_interval_minutes INTEGER NOT NULL DEFAULT 60,
+    last_sync_at TEXT,
+    last_health_at TEXT,
+    last_health_status TEXT NOT NULL DEFAULT '',
+    last_health_message TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_marketplaces_type ON marketplaces(connector_type);
+CREATE INDEX IF NOT EXISTS idx_marketplaces_status ON marketplaces(status);
+CREATE TABLE IF NOT EXISTS marketplace_connections (
+    id TEXT PRIMARY KEY,
+    marketplace_id TEXT NOT NULL,
+    name TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'disconnected',
+    config_json TEXT NOT NULL DEFAULT '{}',
+    credentials_json TEXT NOT NULL DEFAULT '{}',
+    last_test_at TEXT,
+    last_test_status TEXT NOT NULL DEFAULT '',
+    last_test_message TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_marketplace_connections_mp ON marketplace_connections(marketplace_id);
+CREATE TABLE IF NOT EXISTS marketplace_selections (
+    id TEXT PRIMARY KEY,
+    marketplace_id TEXT NOT NULL,
+    product_sku TEXT NOT NULL,
+    selection_status TEXT NOT NULL DEFAULT 'NOT_SELECTED',
+    approval_status TEXT NOT NULL DEFAULT 'PENDING',
+    score REAL NOT NULL DEFAULT 0,
+    eligible INTEGER NOT NULL DEFAULT 0,
+    reasons_json TEXT NOT NULL DEFAULT '[]',
+    blockers_json TEXT NOT NULL DEFAULT '[]',
+    recommendations_json TEXT NOT NULL DEFAULT '[]',
+    criteria_json TEXT NOT NULL DEFAULT '{}',
+    selected_by TEXT NOT NULL DEFAULT 'ai',
+    selected_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(marketplace_id, product_sku)
+);
+CREATE INDEX IF NOT EXISTS idx_marketplace_selections_mp ON marketplace_selections(marketplace_id);
+CREATE INDEX IF NOT EXISTS idx_marketplace_selections_sku ON marketplace_selections(product_sku);
+CREATE TABLE IF NOT EXISTS marketplace_products (
+    id TEXT PRIMARY KEY,
+    marketplace_id TEXT NOT NULL,
+    product_sku TEXT NOT NULL,
+    external_product_id TEXT NOT NULL DEFAULT '',
+    canonical_product_json TEXT NOT NULL DEFAULT '{}',
+    marketplace_content_json TEXT NOT NULL DEFAULT '{}',
+    marketplace_pricing_json TEXT NOT NULL DEFAULT '{}',
+    marketplace_category_id TEXT NOT NULL DEFAULT '',
+    attribute_mapping_json TEXT NOT NULL DEFAULT '{}',
+    listing_status TEXT NOT NULL DEFAULT 'NOT_LISTED',
+    sync_status TEXT NOT NULL DEFAULT 'never',
+    last_error TEXT NOT NULL DEFAULT '',
+    last_synced_at TEXT,
+    last_exported_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(marketplace_id, product_sku)
+);
+CREATE INDEX IF NOT EXISTS idx_marketplace_products_mp ON marketplace_products(marketplace_id);
+CREATE INDEX IF NOT EXISTS idx_marketplace_products_sku ON marketplace_products(product_sku);
+CREATE INDEX IF NOT EXISTS idx_marketplace_products_status ON marketplace_products(listing_status);
+CREATE TABLE IF NOT EXISTS marketplace_listings (
+    id TEXT PRIMARY KEY,
+    marketplace_id TEXT NOT NULL,
+    product_sku TEXT NOT NULL,
+    external_listing_id TEXT NOT NULL DEFAULT '',
+    listing_status TEXT NOT NULL DEFAULT 'NOT_LISTED',
+    last_status_check_at TEXT,
+    status_source TEXT NOT NULL DEFAULT '',
+    raw_status_json TEXT NOT NULL DEFAULT '{}',
+    url TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(marketplace_id, product_sku)
+);
+CREATE INDEX IF NOT EXISTS idx_marketplace_listings_mp ON marketplace_listings(marketplace_id);
+CREATE TABLE IF NOT EXISTS marketplace_export_jobs (
+    id TEXT PRIMARY KEY,
+    marketplace_id TEXT NOT NULL,
+    mode TEXT NOT NULL DEFAULT 'dry_run',
+    status TEXT NOT NULL DEFAULT 'pending',
+    requested_by TEXT NOT NULL DEFAULT '',
+    approved_by TEXT NOT NULL DEFAULT '',
+    approved_at TEXT,
+    total_items INTEGER NOT NULL DEFAULT 0,
+    success_items INTEGER NOT NULL DEFAULT 0,
+    failed_items INTEGER NOT NULL DEFAULT 0,
+    skipped_items INTEGER NOT NULL DEFAULT 0,
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    result_json TEXT NOT NULL DEFAULT '{}',
+    error_message TEXT NOT NULL DEFAULT '',
+    started_at TEXT,
+    finished_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_marketplace_export_jobs_mp ON marketplace_export_jobs(marketplace_id);
+CREATE INDEX IF NOT EXISTS idx_marketplace_export_jobs_status ON marketplace_export_jobs(status);
+CREATE TABLE IF NOT EXISTS marketplace_export_items (
+    id TEXT PRIMARY KEY,
+    job_id TEXT NOT NULL,
+    marketplace_id TEXT NOT NULL,
+    product_sku TEXT NOT NULL,
+    action TEXT NOT NULL DEFAULT 'export',
+    status TEXT NOT NULL DEFAULT 'pending',
+    external_id TEXT NOT NULL DEFAULT '',
+    request_json TEXT NOT NULL DEFAULT '{}',
+    response_json TEXT NOT NULL DEFAULT '{}',
+    error_message TEXT NOT NULL DEFAULT '',
+    idempotency_key TEXT NOT NULL DEFAULT '',
+    started_at TEXT,
+    finished_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_marketplace_export_items_job ON marketplace_export_items(job_id);
+CREATE INDEX IF NOT EXISTS idx_marketplace_export_items_mp_sku ON marketplace_export_items(marketplace_id, product_sku);
+CREATE TABLE IF NOT EXISTS marketplace_sync_jobs (
+    id TEXT PRIMARY KEY,
+    marketplace_id TEXT NOT NULL,
+    job_type TEXT NOT NULL DEFAULT 'sync',
+    status TEXT NOT NULL DEFAULT 'pending',
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    result_json TEXT NOT NULL DEFAULT '{}',
+    error_message TEXT NOT NULL DEFAULT '',
+    started_at TEXT,
+    finished_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_marketplace_sync_jobs_mp ON marketplace_sync_jobs(marketplace_id);
+CREATE TABLE IF NOT EXISTS marketplace_audit_events (
+    id TEXT PRIMARY KEY,
+    marketplace_id TEXT NOT NULL DEFAULT '',
+    product_sku TEXT NOT NULL DEFAULT '',
+    job_id TEXT NOT NULL DEFAULT '',
+    actor TEXT NOT NULL DEFAULT '',
+    action TEXT NOT NULL,
+    severity TEXT NOT NULL DEFAULT 'info',
+    message TEXT NOT NULL DEFAULT '',
+    details_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_marketplace_audit_mp ON marketplace_audit_events(marketplace_id);
+CREATE INDEX IF NOT EXISTS idx_marketplace_audit_sku ON marketplace_audit_events(product_sku);
+CREATE INDEX IF NOT EXISTS idx_marketplace_audit_created ON marketplace_audit_events(created_at DESC);
 CREATE TABLE IF NOT EXISTS import_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     source TEXT NOT NULL,
@@ -7688,3 +8046,399 @@ async def pi_update_export_job(job_id: str, **fields: Any) -> None:
     vals.append(job_id)
     async with get_connection() as db:
         await db.execute(f"UPDATE pi_export_jobs SET {', '.join(sets)} WHERE id=?", tuple(vals)); await db.commit()
+
+# ── Marketplace Command Center helpers ───────────────────────────────────
+
+def _mcc_decode(row: dict[str, Any]) -> dict[str, Any]:
+    for k in ("config_json","credentials_json","reasons_json","blockers_json","recommendations_json","criteria_json","canonical_product_json","marketplace_content_json","marketplace_pricing_json","attribute_mapping_json","payload_json","result_json","request_json","response_json","raw_status_json","details_json"):
+        if k in row and isinstance(row[k], str):
+            try: row[k]=json.loads(row[k])
+            except Exception: pass
+    # never expose credentials
+    if "credentials_json" in row:
+        row["credentials_configured"] = bool(row.get("credentials_json"))
+        row["credentials_json"] = {"configured": bool(row.get("credentials_json"))}
+    for b in ("eligible","require_available_stock","require_valid_images","require_valid_pricing","require_category_mapping"):
+        if b in row and isinstance(row[b], int):
+            row[b]=bool(row[b])
+    return row
+
+
+async def mcc_upsert_marketplace(data: dict[str, Any]) -> dict[str, Any]:
+    now = utc_now()
+    mid = str(data.get("id") or uuid.uuid4())
+    fields = {
+        "id": mid,
+        "name": str(data.get("name") or mid),
+        "connector_type": str(data.get("connector_type") or data.get("type") or ""),
+        "status": str(data.get("status") or "inactive"),
+        "config_json": _json_dump(data.get("config_json") or data.get("config") or {}, {}),
+        "credentials_json": _json_dump(data.get("credentials_json") or data.get("credentials") or {}, {}),
+        "currency": str(data.get("currency") or "EUR"),
+        "country": str(data.get("country") or "DE"),
+        "language": str(data.get("language") or "de-DE"),
+        "min_score": float(data.get("min_score") or 70),
+        "target_products": int(data.get("target_products") or 0),
+        "min_products": int(data.get("min_products") or 0),
+        "max_products": int(data.get("max_products") or 0),
+        "require_available_stock": bool(data.get("require_available_stock", True)),
+        "require_valid_images": bool(data.get("require_valid_images", True)),
+        "require_valid_pricing": bool(data.get("require_valid_pricing", True)),
+        "require_category_mapping": bool(data.get("require_category_mapping", False)),
+        "sync_interval_minutes": int(data.get("sync_interval_minutes") or 60),
+        "updated_at": now,
+    }
+    if uses_postgres():
+        pool = await get_pg_pool()
+        async with pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO marketplaces (id,name,connector_type,status,config_json,credentials_json,currency,country,language,min_score,target_products,min_products,max_products,require_available_stock,require_valid_images,require_valid_pricing,require_category_mapping,sync_interval_minutes,created_at,updated_at)
+                VALUES ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,NOW(),NOW())
+                ON CONFLICT(id) DO UPDATE SET
+                  name=EXCLUDED.name, connector_type=EXCLUDED.connector_type, status=EXCLUDED.status,
+                  config_json=EXCLUDED.config_json, credentials_json=CASE WHEN EXCLUDED.credentials_json='{}'::jsonb THEN marketplaces.credentials_json ELSE EXCLUDED.credentials_json END,
+                  currency=EXCLUDED.currency, country=EXCLUDED.country, language=EXCLUDED.language, min_score=EXCLUDED.min_score,
+                  target_products=EXCLUDED.target_products, min_products=EXCLUDED.min_products, max_products=EXCLUDED.max_products,
+                  require_available_stock=EXCLUDED.require_available_stock, require_valid_images=EXCLUDED.require_valid_images,
+                  require_valid_pricing=EXCLUDED.require_valid_pricing, require_category_mapping=EXCLUDED.require_category_mapping,
+                  sync_interval_minutes=EXCLUDED.sync_interval_minutes, updated_at=NOW()
+            """, fields["id"],fields["name"],fields["connector_type"],fields["status"],fields["config_json"],fields["credentials_json"],fields["currency"],fields["country"],fields["language"],fields["min_score"],fields["target_products"],fields["min_products"],fields["max_products"],fields["require_available_stock"],fields["require_valid_images"],fields["require_valid_pricing"],fields["require_category_mapping"],fields["sync_interval_minutes"])
+            row = await conn.fetchrow("SELECT * FROM marketplaces WHERE id=$1", mid)
+        return _mcc_decode(dict(row))
+    async with get_connection() as db:
+        await db.execute("""
+            INSERT INTO marketplaces (id,name,connector_type,status,config_json,credentials_json,currency,country,language,min_score,target_products,min_products,max_products,require_available_stock,require_valid_images,require_valid_pricing,require_category_mapping,sync_interval_minutes,created_at,updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(id) DO UPDATE SET
+              name=excluded.name, connector_type=excluded.connector_type, status=excluded.status,
+              config_json=excluded.config_json,
+              credentials_json=CASE WHEN excluded.credentials_json='{}' THEN marketplaces.credentials_json ELSE excluded.credentials_json END,
+              currency=excluded.currency, country=excluded.country, language=excluded.language, min_score=excluded.min_score,
+              target_products=excluded.target_products, min_products=excluded.min_products, max_products=excluded.max_products,
+              require_available_stock=excluded.require_available_stock, require_valid_images=excluded.require_valid_images,
+              require_valid_pricing=excluded.require_valid_pricing, require_category_mapping=excluded.require_category_mapping,
+              sync_interval_minutes=excluded.sync_interval_minutes, updated_at=excluded.updated_at
+        """, (mid,fields["name"],fields["connector_type"],fields["status"],fields["config_json"],fields["credentials_json"],fields["currency"],fields["country"],fields["language"],fields["min_score"],fields["target_products"],fields["min_products"],fields["max_products"],1 if fields["require_available_stock"] else 0,1 if fields["require_valid_images"] else 0,1 if fields["require_valid_pricing"] else 0,1 if fields["require_category_mapping"] else 0,fields["sync_interval_minutes"],now,now))
+        await db.commit()
+        cur = await db.execute("SELECT * FROM marketplaces WHERE id=?", (mid,))
+        row = await cur.fetchone(); await cur.close()
+        return _mcc_decode(dict(row)) if row else {"id": mid}
+
+
+async def mcc_list_marketplaces() -> list[dict[str, Any]]:
+    if uses_postgres():
+        pool = await get_pg_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch("SELECT * FROM marketplaces ORDER BY created_at DESC")
+        return [_mcc_decode(dict(r)) for r in rows]
+    async with get_connection() as db:
+        cur = await db.execute("SELECT * FROM marketplaces ORDER BY created_at DESC")
+        rows = await cur.fetchall(); await cur.close()
+        return [_mcc_decode(dict(r)) for r in rows]
+
+
+async def mcc_get_marketplace(marketplace_id: str) -> dict[str, Any] | None:
+    if uses_postgres():
+        pool = await get_pg_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT * FROM marketplaces WHERE id=$1", marketplace_id)
+        return _mcc_decode(dict(row)) if row else None
+    async with get_connection() as db:
+        cur = await db.execute("SELECT * FROM marketplaces WHERE id=?", (marketplace_id,))
+        row = await cur.fetchone(); await cur.close()
+        return _mcc_decode(dict(row)) if row else None
+
+
+async def mcc_update_marketplace_health(marketplace_id: str, status: str, message: str) -> None:
+    now = utc_now()
+    if uses_postgres():
+        pool = await get_pg_pool()
+        async with pool.acquire() as conn:
+            await conn.execute("UPDATE marketplaces SET last_health_at=NOW(), last_health_status=$1, last_health_message=$2, updated_at=NOW() WHERE id=$3", status, (message or '')[:1000], marketplace_id)
+        return
+    async with get_connection() as db:
+        await db.execute("UPDATE marketplaces SET last_health_at=?, last_health_status=?, last_health_message=?, updated_at=? WHERE id=?", (now,status,(message or '')[:1000],now,marketplace_id))
+        await db.commit()
+
+
+async def mcc_upsert_selection(marketplace_id: str, product_sku: str, result: dict[str, Any], *, selected_by: str = "ai") -> dict[str, Any]:
+    now = utc_now()
+    sid = str(uuid.uuid4())
+    sel_status = "AI_SELECTED" if result.get("eligible") else "NOT_SELECTED"
+    if uses_postgres():
+        pool = await get_pg_pool()
+        async with pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO marketplace_selections (id,marketplace_id,product_sku,selection_status,approval_status,score,eligible,reasons_json,blockers_json,recommendations_json,criteria_json,selected_by,selected_at,created_at,updated_at)
+                VALUES ($1,$2,$3,$4,'PENDING',$5,$6,$7::jsonb,$8::jsonb,$9::jsonb,$10::jsonb,$11,NOW(),NOW(),NOW())
+                ON CONFLICT(marketplace_id,product_sku) DO UPDATE SET
+                  selection_status=EXCLUDED.selection_status, score=EXCLUDED.score, eligible=EXCLUDED.eligible,
+                  reasons_json=EXCLUDED.reasons_json, blockers_json=EXCLUDED.blockers_json, recommendations_json=EXCLUDED.recommendations_json,
+                  criteria_json=EXCLUDED.criteria_json, selected_by=EXCLUDED.selected_by, selected_at=NOW(), updated_at=NOW()
+            """, sid,marketplace_id,product_sku,sel_status,float(result.get("score") or 0),bool(result.get("eligible")), _json_dump(result.get("reasons") or [],[]),_json_dump(result.get("blockers") or [],[]),_json_dump(result.get("recommendations") or [],[]),_json_dump(result.get("criteria") or {},{}), selected_by)
+            row = await conn.fetchrow("SELECT * FROM marketplace_selections WHERE marketplace_id=$1 AND product_sku=$2", marketplace_id, product_sku)
+        return _mcc_decode(dict(row))
+    async with get_connection() as db:
+        await db.execute("""
+            INSERT INTO marketplace_selections (id,marketplace_id,product_sku,selection_status,approval_status,score,eligible,reasons_json,blockers_json,recommendations_json,criteria_json,selected_by,selected_at,created_at,updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(marketplace_id,product_sku) DO UPDATE SET
+              selection_status=excluded.selection_status, score=excluded.score, eligible=excluded.eligible,
+              reasons_json=excluded.reasons_json, blockers_json=excluded.blockers_json, recommendations_json=excluded.recommendations_json,
+              criteria_json=excluded.criteria_json, selected_by=excluded.selected_by, selected_at=excluded.selected_at, updated_at=excluded.updated_at
+        """, (sid,marketplace_id,product_sku,sel_status,'PENDING',float(result.get("score") or 0),1 if result.get("eligible") else 0,_json_dump(result.get("reasons") or [],[]),_json_dump(result.get("blockers") or [],[]),_json_dump(result.get("recommendations") or [],[]),_json_dump(result.get("criteria") or {},{}),selected_by,now,now,now))
+        await db.commit()
+        cur = await db.execute("SELECT * FROM marketplace_selections WHERE marketplace_id=? AND product_sku=?", (marketplace_id,product_sku))
+        row = await cur.fetchone(); await cur.close()
+        return _mcc_decode(dict(row)) if row else {"id": sid}
+
+
+async def mcc_list_selections(marketplace_id: str, limit: int = 200) -> list[dict[str, Any]]:
+    limit = min(max(limit,1),1000)
+    if uses_postgres():
+        pool = await get_pg_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch("SELECT * FROM marketplace_selections WHERE marketplace_id=$1 ORDER BY score DESC, updated_at DESC LIMIT $2", marketplace_id, limit)
+        return [_mcc_decode(dict(r)) for r in rows]
+    async with get_connection() as db:
+        cur = await db.execute("SELECT * FROM marketplace_selections WHERE marketplace_id=? ORDER BY score DESC, updated_at DESC LIMIT ?", (marketplace_id, limit))
+        rows = await cur.fetchall(); await cur.close()
+        return [_mcc_decode(dict(r)) for r in rows]
+
+
+async def mcc_upsert_marketplace_product(marketplace_id: str, product_sku: str, **fields: Any) -> dict[str, Any]:
+    now = utc_now()
+    pid = str(fields.pop("id", None) or uuid.uuid4())
+    existing = await mcc_get_marketplace_product(marketplace_id, product_sku)
+    base = existing or {}
+    payload = {
+        "id": base.get("id") or pid,
+        "marketplace_id": marketplace_id,
+        "product_sku": product_sku,
+        "external_product_id": str(fields.get("external_product_id", base.get("external_product_id", ""))),
+        "canonical_product_json": _json_dump(fields.get("canonical_product_json", base.get("canonical_product_json", {})), {}),
+        "marketplace_content_json": _json_dump(fields.get("marketplace_content_json", base.get("marketplace_content_json", {})), {}),
+        "marketplace_pricing_json": _json_dump(fields.get("marketplace_pricing_json", base.get("marketplace_pricing_json", {})), {}),
+        "marketplace_category_id": str(fields.get("marketplace_category_id", base.get("marketplace_category_id", ""))),
+        "attribute_mapping_json": _json_dump(fields.get("attribute_mapping_json", base.get("attribute_mapping_json", {})), {}),
+        "listing_status": str(fields.get("listing_status", base.get("listing_status", "NOT_LISTED"))),
+        "sync_status": str(fields.get("sync_status", base.get("sync_status", "never"))),
+        "last_error": str(fields.get("last_error", base.get("last_error", "")))[:2000],
+        "last_synced_at": fields.get("last_synced_at", base.get("last_synced_at")),
+        "last_exported_at": fields.get("last_exported_at", base.get("last_exported_at")),
+        "updated_at": now,
+    }
+    if uses_postgres():
+        pool = await get_pg_pool()
+        async with pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO marketplace_products (id,marketplace_id,product_sku,external_product_id,canonical_product_json,marketplace_content_json,marketplace_pricing_json,marketplace_category_id,attribute_mapping_json,listing_status,sync_status,last_error,last_synced_at,last_exported_at,created_at,updated_at)
+                VALUES ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7::jsonb,$8,$9::jsonb,$10,$11,$12,$13,$14,NOW(),NOW())
+                ON CONFLICT(marketplace_id,product_sku) DO UPDATE SET
+                  external_product_id=EXCLUDED.external_product_id, canonical_product_json=EXCLUDED.canonical_product_json, marketplace_content_json=EXCLUDED.marketplace_content_json,
+                  marketplace_pricing_json=EXCLUDED.marketplace_pricing_json, marketplace_category_id=EXCLUDED.marketplace_category_id, attribute_mapping_json=EXCLUDED.attribute_mapping_json,
+                  listing_status=EXCLUDED.listing_status, sync_status=EXCLUDED.sync_status, last_error=EXCLUDED.last_error,
+                  last_synced_at=COALESCE(EXCLUDED.last_synced_at, marketplace_products.last_synced_at), last_exported_at=COALESCE(EXCLUDED.last_exported_at, marketplace_products.last_exported_at), updated_at=NOW()
+            """, payload["id"],payload["marketplace_id"],payload["product_sku"],payload["external_product_id"],payload["canonical_product_json"],payload["marketplace_content_json"],payload["marketplace_pricing_json"],payload["marketplace_category_id"],payload["attribute_mapping_json"],payload["listing_status"],payload["sync_status"],payload["last_error"],payload["last_synced_at"],payload["last_exported_at"])
+            row = await conn.fetchrow("SELECT * FROM marketplace_products WHERE marketplace_id=$1 AND product_sku=$2", marketplace_id, product_sku)
+        return _mcc_decode(dict(row))
+    async with get_connection() as db:
+        await db.execute("""
+            INSERT INTO marketplace_products (id,marketplace_id,product_sku,external_product_id,canonical_product_json,marketplace_content_json,marketplace_pricing_json,marketplace_category_id,attribute_mapping_json,listing_status,sync_status,last_error,last_synced_at,last_exported_at,created_at,updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(marketplace_id,product_sku) DO UPDATE SET
+              external_product_id=excluded.external_product_id, canonical_product_json=excluded.canonical_product_json, marketplace_content_json=excluded.marketplace_content_json,
+              marketplace_pricing_json=excluded.marketplace_pricing_json, marketplace_category_id=excluded.marketplace_category_id, attribute_mapping_json=excluded.attribute_mapping_json,
+              listing_status=excluded.listing_status, sync_status=excluded.sync_status, last_error=excluded.last_error,
+              last_synced_at=COALESCE(excluded.last_synced_at, marketplace_products.last_synced_at), last_exported_at=COALESCE(excluded.last_exported_at, marketplace_products.last_exported_at), updated_at=excluded.updated_at
+        """, (payload["id"],payload["marketplace_id"],payload["product_sku"],payload["external_product_id"],payload["canonical_product_json"],payload["marketplace_content_json"],payload["marketplace_pricing_json"],payload["marketplace_category_id"],payload["attribute_mapping_json"],payload["listing_status"],payload["sync_status"],payload["last_error"],payload["last_synced_at"],payload["last_exported_at"],now,now))
+        await db.commit()
+        cur = await db.execute("SELECT * FROM marketplace_products WHERE marketplace_id=? AND product_sku=?", (marketplace_id, product_sku))
+        row = await cur.fetchone(); await cur.close()
+        return _mcc_decode(dict(row)) if row else payload
+
+
+async def mcc_get_marketplace_product(marketplace_id: str, product_sku: str) -> dict[str, Any] | None:
+    if uses_postgres():
+        pool = await get_pg_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT * FROM marketplace_products WHERE marketplace_id=$1 AND product_sku=$2", marketplace_id, product_sku)
+        return _mcc_decode(dict(row)) if row else None
+    async with get_connection() as db:
+        cur = await db.execute("SELECT * FROM marketplace_products WHERE marketplace_id=? AND product_sku=?", (marketplace_id, product_sku))
+        row = await cur.fetchone(); await cur.close()
+        return _mcc_decode(dict(row)) if row else None
+
+
+async def mcc_list_marketplace_products(marketplace_id: str, limit: int = 500) -> list[dict[str, Any]]:
+    limit=min(max(limit,1),2000)
+    if uses_postgres():
+        pool=await get_pg_pool()
+        async with pool.acquire() as conn:
+            rows=await conn.fetch("SELECT * FROM marketplace_products WHERE marketplace_id=$1 ORDER BY updated_at DESC LIMIT $2", marketplace_id, limit)
+        return [_mcc_decode(dict(r)) for r in rows]
+    async with get_connection() as db:
+        cur=await db.execute("SELECT * FROM marketplace_products WHERE marketplace_id=? ORDER BY updated_at DESC LIMIT ?", (marketplace_id, limit))
+        rows=await cur.fetchall(); await cur.close()
+        return [_mcc_decode(dict(r)) for r in rows]
+
+
+async def mcc_create_export_job(marketplace_id: str, mode: str, requested_by: str, payload: dict[str, Any]) -> dict[str, Any]:
+    now=utc_now(); jid=str(uuid.uuid4())
+    if uses_postgres():
+        pool=await get_pg_pool()
+        async with pool.acquire() as conn:
+            await conn.execute("INSERT INTO marketplace_export_jobs (id,marketplace_id,mode,status,requested_by,payload_json,created_at,updated_at) VALUES ($1,$2,$3,'pending',$4,$5::jsonb,NOW(),NOW())", jid,marketplace_id,mode,requested_by,_json_dump(payload,{}))
+            row=await conn.fetchrow("SELECT * FROM marketplace_export_jobs WHERE id=$1", jid)
+        return _mcc_decode(dict(row))
+    async with get_connection() as db:
+        await db.execute("INSERT INTO marketplace_export_jobs (id,marketplace_id,mode,status,requested_by,payload_json,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)", (jid,marketplace_id,mode,'pending',requested_by,_json_dump(payload,{}),now,now))
+        await db.commit(); cur=await db.execute("SELECT * FROM marketplace_export_jobs WHERE id=?", (jid,)); row=await cur.fetchone(); await cur.close()
+        return _mcc_decode(dict(row)) if row else {"id":jid}
+
+
+async def mcc_update_export_job(job_id: str, **fields: Any) -> dict[str, Any] | None:
+    if not fields: return await mcc_get_export_job(job_id)
+    now=utc_now(); fields["updated_at"]=now
+    if uses_postgres():
+        sets=[]; vals=[]; i=1
+        for k,v in fields.items():
+            if k.endswith('_json') or k in {'payload_json','result_json'}: sets.append(f"{k}=${i}::jsonb"); vals.append(_json_dump(v,{} if k!='items' else []))
+            else: sets.append(f"{k}=${i}"); vals.append(v)
+            i+=1
+        vals.append(job_id)
+        pool=await get_pg_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(f"UPDATE marketplace_export_jobs SET {', '.join(sets)} WHERE id=${i}", *vals)
+            row=await conn.fetchrow("SELECT * FROM marketplace_export_jobs WHERE id=$1", job_id)
+        return _mcc_decode(dict(row)) if row else None
+    sets=[]; vals=[]
+    for k,v in fields.items():
+        if k.endswith('_json') or k in {'payload_json','result_json'}: v=_json_dump(v,{} if k!='items' else [])
+        sets.append(f"{k}=?"); vals.append(v)
+    vals.append(job_id)
+    async with get_connection() as db:
+        await db.execute(f"UPDATE marketplace_export_jobs SET {', '.join(sets)} WHERE id=?", tuple(vals)); await db.commit()
+        cur=await db.execute("SELECT * FROM marketplace_export_jobs WHERE id=?", (job_id,)); row=await cur.fetchone(); await cur.close()
+        return _mcc_decode(dict(row)) if row else None
+
+
+async def mcc_get_export_job(job_id: str) -> dict[str, Any] | None:
+    if uses_postgres():
+        pool = await get_pg_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT * FROM marketplace_export_jobs WHERE id=$1", job_id)
+        return _mcc_decode(dict(row)) if row else None
+    async with get_connection() as db:
+        cur = await db.execute("SELECT * FROM marketplace_export_jobs WHERE id=?", (job_id,))
+        row = await cur.fetchone()
+        await cur.close()
+        return _mcc_decode(dict(row)) if row else None
+
+
+async def mcc_list_export_jobs(marketplace_id: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
+    limit=min(max(limit,1),500)
+    if uses_postgres():
+        pool = await get_pg_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch("SELECT * FROM marketplace_export_jobs WHERE ($1::text IS NULL OR marketplace_id=$1) ORDER BY created_at DESC LIMIT $2", marketplace_id, limit)
+        return [_mcc_decode(dict(r)) for r in rows]
+    async with get_connection() as db:
+        if marketplace_id:
+            cur=await db.execute("SELECT * FROM marketplace_export_jobs WHERE marketplace_id=? ORDER BY created_at DESC LIMIT ?", (marketplace_id,limit))
+        else:
+            cur=await db.execute("SELECT * FROM marketplace_export_jobs ORDER BY created_at DESC LIMIT ?", (limit,))
+        rows=await cur.fetchall(); await cur.close(); return [_mcc_decode(dict(r)) for r in rows]
+
+
+async def mcc_add_export_item(job_id: str, marketplace_id: str, product_sku: str, **fields: Any) -> dict[str, Any]:
+    now=utc_now(); iid=str(uuid.uuid4())
+    payload={
+        "id":iid,"job_id":job_id,"marketplace_id":marketplace_id,"product_sku":product_sku,
+        "action":str(fields.get("action","export")),"status":str(fields.get("status","pending")),
+        "external_id":str(fields.get("external_id","")),"request_json":_json_dump(fields.get("request_json",{}),{}),
+        "response_json":_json_dump(fields.get("response_json",{}),{}),"error_message":str(fields.get("error_message",""))[:2000],
+        "idempotency_key":str(fields.get("idempotency_key","")), "started_at":fields.get("started_at"), "finished_at":fields.get("finished_at"),
+        "created_at":now,"updated_at":now,
+    }
+    if uses_postgres():
+        pool = await get_pg_pool()
+        async with pool.acquire() as conn:
+            await conn.execute("""INSERT INTO marketplace_export_items (id,job_id,marketplace_id,product_sku,action,status,external_id,request_json,response_json,error_message,idempotency_key,started_at,finished_at,created_at,updated_at)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10,$11,$12,$13,NOW(),NOW())""",
+                payload["id"],payload["job_id"],payload["marketplace_id"],payload["product_sku"],payload["action"],payload["status"],payload["external_id"],payload["request_json"],payload["response_json"],payload["error_message"],payload["idempotency_key"],payload["started_at"],payload["finished_at"])
+            row=await conn.fetchrow("SELECT * FROM marketplace_export_items WHERE id=$1", iid)
+        return _mcc_decode(dict(row))
+    async with get_connection() as db:
+        await db.execute("""INSERT INTO marketplace_export_items (id,job_id,marketplace_id,product_sku,action,status,external_id,request_json,response_json,error_message,idempotency_key,started_at,finished_at,created_at,updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (payload["id"],payload["job_id"],payload["marketplace_id"],payload["product_sku"],payload["action"],payload["status"],payload["external_id"],payload["request_json"],payload["response_json"],payload["error_message"],payload["idempotency_key"],payload["started_at"],payload["finished_at"],now,now))
+        await db.commit(); cur=await db.execute("SELECT * FROM marketplace_export_items WHERE id=?", (iid,)); row=await cur.fetchone(); await cur.close(); return _mcc_decode(dict(row)) if row else payload
+
+
+async def mcc_list_export_items(job_id: str, limit: int = 500) -> list[dict[str, Any]]:
+    limit=min(max(limit,1),2000)
+    if uses_postgres():
+        pool = await get_pg_pool()
+        async with pool.acquire() as conn:
+            rows=await conn.fetch("SELECT * FROM marketplace_export_items WHERE job_id=$1 ORDER BY created_at ASC LIMIT $2", job_id, limit)
+        return [_mcc_decode(dict(r)) for r in rows]
+    async with get_connection() as db:
+        cur=await db.execute("SELECT * FROM marketplace_export_items WHERE job_id=? ORDER BY created_at ASC LIMIT ?", (job_id,limit)); rows=await cur.fetchall(); await cur.close(); return [_mcc_decode(dict(r)) for r in rows]
+
+
+async def mcc_audit(action: str, *, marketplace_id: str = "", product_sku: str = "", job_id: str = "", actor: str = "system", severity: str = "info", message: str = "", details: dict[str, Any] | None = None) -> None:
+    now=utc_now(); aid=str(uuid.uuid4())
+    details_json=_json_dump(details or {}, {})
+    if uses_postgres():
+        pool = await get_pg_pool()
+        async with pool.acquire() as conn:
+            await conn.execute("INSERT INTO marketplace_audit_events (id,marketplace_id,product_sku,job_id,actor,action,severity,message,details_json,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,NOW())", aid,marketplace_id,product_sku,job_id,actor,action,severity,message[:2000],details_json)
+        return
+    async with get_connection() as db:
+        await db.execute("INSERT INTO marketplace_audit_events (id,marketplace_id,product_sku,job_id,actor,action,severity,message,details_json,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)", (aid,marketplace_id,product_sku,job_id,actor,action,severity,message[:2000],details_json,now))
+        await db.commit()
+
+
+async def mcc_list_audit(marketplace_id: str = "", product_sku: str = "", limit: int = 200) -> list[dict[str, Any]]:
+    limit=min(max(limit,1),1000)
+    if uses_postgres():
+        pool = await get_pg_pool()
+        async with pool.acquire() as conn:
+            rows=await conn.fetch("""SELECT * FROM marketplace_audit_events WHERE ($1='' OR marketplace_id=$1) AND ($2='' OR product_sku=$2) ORDER BY created_at DESC LIMIT $3""", marketplace_id, product_sku, limit)
+        return [_mcc_decode(dict(r)) for r in rows]
+    async with get_connection() as db:
+        cur=await db.execute("""SELECT * FROM marketplace_audit_events WHERE (?='' OR marketplace_id=?) AND (?='' OR product_sku=?) ORDER BY created_at DESC LIMIT ?""", (marketplace_id,marketplace_id,product_sku,product_sku,limit))
+        rows=await cur.fetchall(); await cur.close(); return [_mcc_decode(dict(r)) for r in rows]
+
+
+async def mcc_overview() -> dict[str, Any]:
+    mps = await mcc_list_marketplaces()
+    jobs = await mcc_list_export_jobs(limit=200)
+    # aggregate selection/listing counts
+    sel_total=0; listed=0; errors=0; pending=0
+    if uses_postgres():
+        pool = await get_pg_pool()
+        async with pool.acquire() as conn:
+            r1=await conn.fetchrow("SELECT COUNT(*) c FROM marketplace_selections WHERE selection_status='AI_SELECTED'")
+            r2=await conn.fetchrow("SELECT COUNT(*) c FROM marketplace_products WHERE listing_status='ONLINE'")
+            r3=await conn.fetchrow("SELECT COUNT(*) c FROM marketplace_products WHERE listing_status='ERROR'")
+            r4=await conn.fetchrow("SELECT COUNT(*) c FROM marketplace_export_jobs WHERE status IN ('pending','running')")
+        sel_total=int((r1 or {}).get('c',0)); listed=int((r2 or {}).get('c',0)); errors=int((r3 or {}).get('c',0)); pending=int((r4 or {}).get('c',0))
+    else:
+        async with get_connection() as db:
+            async def c(q,a=()):
+                cur=await db.execute(q,a); row=await cur.fetchone(); await cur.close(); return int(list(row.values())[0]) if row else 0
+            sel_total=await c("SELECT COUNT(*) c FROM marketplace_selections WHERE selection_status='AI_SELECTED'")
+            listed=await c("SELECT COUNT(*) c FROM marketplace_products WHERE listing_status='ONLINE'")
+            errors=await c("SELECT COUNT(*) c FROM marketplace_products WHERE listing_status='ERROR'")
+            pending=await c("SELECT COUNT(*) c FROM marketplace_export_jobs WHERE status IN ('pending','running')")
+    return {
+        "marketplaces_total": len(mps),
+        "marketplaces_active": sum(1 for m in mps if str(m.get("status")) in {"active","connected"}),
+        "ai_selected_total": sel_total,
+        "listed_online_total": listed,
+        "export_errors_total": errors,
+        "export_jobs_pending": pending,
+        "recent_jobs": jobs[:10],
+        "marketplaces": mps,
+    }

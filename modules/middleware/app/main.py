@@ -110,6 +110,14 @@ from database import (
     pi_save_scoring_config, pi_get_default_scoring_config, pi_save_product_score,
     pi_create_selection_run, pi_finish_selection_run, pi_save_selection_item, pi_get_selection_run,
     pi_list_selection_runs, pi_create_export_job, pi_update_export_job,
+    mcc_upsert_marketplace, mcc_list_marketplaces, mcc_get_marketplace, mcc_update_marketplace_health,
+    mcc_upsert_selection, mcc_list_selections, mcc_upsert_marketplace_product, mcc_get_marketplace_product,
+    mcc_list_marketplace_products, mcc_create_export_job, mcc_update_export_job, mcc_get_export_job,
+    mcc_list_export_jobs, mcc_add_export_item, mcc_list_export_items, mcc_audit, mcc_list_audit, mcc_overview,
+)
+from services.marketplace_command_center import (
+    MarketplaceScoringEngine, build_connector, connector_registry, summarize_matrix,
+    LISTING_NOT_LISTED, LISTING_ONLINE, LISTING_ERROR, EXPORT_DRY_RUN, EXPORT_PRODUCTION, EXPORT_TEST,
 )
 from services.competitor_provider import provider_registry
 from services.competitor_matching import ProductMatchingEngine
@@ -213,7 +221,9 @@ RBAC_RULES: list[tuple[str, tuple[str, ...], str]] = [
     ("GET", ("/ui/master-dashboard", "/ui/analytics"), "system.read"),
     ("GET", ("/ui/inventory",), "products.read"),
     ("GET", ("/ui/erp-pim",), "products.read"),
-    ("GET", ("/ui/integrations", "/ui/marketplaces"), "connectors.read"),
+    ("GET", ("/api/marketplace-command/", "/api/marketplaces/command-center/"), "connectors.read"),
+    ("POST", ("/api/marketplace-command/", "/api/marketplaces/command-center/"), "connectors.configure"),
+    ("GET", ("/ui/integrations", "/ui/marketplaces", "/ui/marketplace-command-center"), "connectors.read"),
     ("GET", ("/ui/model-management",), "ai.configure"),
     ("GET", ("/ui/competitor-intelligence",), "competitor.read"),
     ("GET", ("/ui/trend-intelligence",), "trends.read"),
@@ -2121,6 +2131,340 @@ async def integrations_health() -> dict[str, Any]:
     return {"status": "ok" if overall_ok else "degraded", "integrations": integrations}
 
 # ---------------------------------------------------------------------------
+# Marketplace Command Center API
+# ---------------------------------------------------------------------------
+
+class MarketplaceUpsertRequest(BaseModel):
+    id: str | None = None
+    name: str
+    connector_type: str = "shopify"
+    status: str = "inactive"
+    config: dict[str, Any] = Field(default_factory=dict)
+    credentials: dict[str, Any] = Field(default_factory=dict)
+    currency: str = "EUR"
+    country: str = "DE"
+    language: str = "de-DE"
+    min_score: float = 70
+    target_products: int = 0
+    min_products: int = 0
+    max_products: int = 0
+    require_available_stock: bool = True
+    require_valid_images: bool = True
+    require_valid_pricing: bool = True
+    require_category_mapping: bool = False
+    sync_interval_minutes: int = 60
+
+
+class MarketplaceSelectionRunRequest(BaseModel):
+    marketplace_id: str
+    limit: int = Field(default=500, ge=1, le=5000)
+    min_score: float | None = None
+    only_eligible: bool = False
+    persist: bool = True
+    selected_by: str = "ai"
+
+
+class MarketplaceExportRequest(BaseModel):
+    marketplace_id: str
+    mode: str = "dry_run"  # dry_run|test|production
+    product_skus: list[str] = Field(default_factory=list)
+    selection_status: str = "AI_SELECTED"
+    limit: int = Field(default=100, ge=1, le=1000)
+    approved: bool = False
+    approved_by: str = ""
+    idempotency_key: str = ""
+
+
+def _mcc_safe_marketplace(mp: dict[str, Any]) -> dict[str, Any]:
+    d = dict(mp)
+    creds = d.get("credentials_json") or {}
+    d["credentials_configured"] = bool(creds) and creds != {"configured": False}
+    d["credentials_json"] = {"configured": d["credentials_configured"]}
+    return d
+
+
+async def _mcc_products_for_scoring(limit: int = 500) -> list[dict[str, Any]]:
+    # canonical source: middleware products table (Shopware-imported/managed products)
+    try:
+        products = await list_products(limit=limit)
+    except Exception:
+        products = []
+    out = []
+    for p in products:
+        out.append({
+            "sku": p.get("sku") or p.get("product_number") or p.get("id"),
+            "id": p.get("id") or p.get("sku"),
+            "title": p.get("title") or p.get("name") or p.get("ai_title"),
+            "description": p.get("description") or p.get("raw_description") or p.get("ai_description_html"),
+            "price": p.get("retail_price") or p.get("sale_price") or p.get("supplier_price"),
+            "stock": p.get("stock") or p.get("available_stock") or p.get("stock_quantity"),
+            "category": p.get("category") or p.get("category_name"),
+            "images": p.get("gallery_json") or p.get("images") or ([] if not p.get("main_image_url") else [p.get("main_image_url")]),
+            "status": p.get("status", "active"),
+            "attributes": p.get("attributes_json") or {},
+            "raw": p,
+        })
+    return out
+
+
+@app.get("/api/marketplace-command/overview")
+async def mcc_api_overview():
+    ov = await mcc_overview()
+    ov["marketplaces"] = [_mcc_safe_marketplace(m) for m in ov.get("marketplaces", [])]
+    return {"status": "ok", "overview": ov}
+
+
+@app.get("/api/marketplace-command/marketplaces")
+async def mcc_api_list_marketplaces():
+    mps = await mcc_list_marketplaces()
+    enriched = []
+    for mp in mps:
+        prods = await mcc_list_marketplace_products(mp["id"], limit=2000)
+        sels = await mcc_list_selections(mp["id"], limit=2000)
+        enriched.append({
+            **_mcc_safe_marketplace(mp),
+            "metrics": {
+                "listed": sum(1 for p in prods if p.get("listing_status") == LISTING_ONLINE),
+                "errors": sum(1 for p in prods if p.get("listing_status") == LISTING_ERROR),
+                "ai_selected": sum(1 for s in sels if s.get("selection_status") == "AI_SELECTED"),
+                "pending": sum(1 for p in prods if p.get("listing_status") in {"EXPORT_PENDING","EXPORT_RUNNING","READY_TO_EXPORT"}),
+                "total_products": len(prods),
+            }
+        })
+    return {"status": "ok", "marketplaces": enriched, "connector_types": connector_registry.list_types()}
+
+
+@app.post("/api/marketplace-command/marketplaces")
+async def mcc_api_upsert_marketplace(payload: MarketplaceUpsertRequest, principal: dict[str, Any] = Depends(get_current_principal)):
+    data = payload.model_dump()
+    data["config_json"] = data.pop("config", {})
+    creds = data.pop("credentials", {})
+    if creds:
+        data["credentials_json"] = creds
+    mp = await mcc_upsert_marketplace(data)
+    await mcc_audit("marketplace.upsert", marketplace_id=mp["id"], actor=str(principal.get("username") or principal.get("user_id") or "api"), message=f"Marketplace {mp.get('name')} upserted", details={"connector_type": mp.get("connector_type")})
+    await write_log("INFO", "mcc_marketplace_upsert", f"Marketplace {mp.get('name')} upserted", {"marketplace_id": mp["id"]})
+    return {"status": "ok", "marketplace": _mcc_safe_marketplace(mp)}
+
+
+@app.get("/api/marketplace-command/marketplaces/{marketplace_id}")
+async def mcc_api_get_marketplace(marketplace_id: str):
+    mp = await mcc_get_marketplace(marketplace_id)
+    if not mp:
+        raise HTTPException(status_code=404, detail="Marketplace not found")
+    prods = await mcc_list_marketplace_products(marketplace_id, limit=2000)
+    sels = await mcc_list_selections(marketplace_id, limit=2000)
+    jobs = await mcc_list_export_jobs(marketplace_id=marketplace_id, limit=50)
+    return {"status": "ok", "marketplace": _mcc_safe_marketplace(mp), "products": prods, "selections": sels, "jobs": jobs, "matrix_summary": summarize_matrix(prods)}
+
+
+@app.post("/api/marketplace-command/marketplaces/{marketplace_id}/health")
+async def mcc_api_marketplace_health(marketplace_id: str):
+    mp = await mcc_get_marketplace(marketplace_id)
+    if not mp:
+        raise HTTPException(status_code=404, detail="Marketplace not found")
+    connector = build_connector(mp)
+    if not connector:
+        health = {"status": "unsupported_connector", "connector_type": mp.get("connector_type"), "message": "No connector implementation registered"}
+    else:
+        health = await connector.health()
+    await mcc_update_marketplace_health(marketplace_id, str(health.get("status", "unknown")), str(health.get("message") or health.get("shop") or ""))
+    await mcc_audit("marketplace.health", marketplace_id=marketplace_id, message=str(health.get("status")), details=health)
+    return {"status": "ok", "marketplace_id": marketplace_id, "health": health}
+
+
+@app.post("/api/marketplace-command/selection/run")
+async def mcc_api_selection_run(payload: MarketplaceSelectionRunRequest, principal: dict[str, Any] = Depends(get_current_principal)):
+    mp = await mcc_get_marketplace(payload.marketplace_id)
+    if not mp:
+        raise HTTPException(status_code=404, detail="Marketplace not found")
+    if payload.min_score is not None:
+        mp["min_score"] = payload.min_score
+    engine = MarketplaceScoringEngine()
+    products = await _mcc_products_for_scoring(limit=payload.limit)
+    scored = []
+    for p in products:
+        res = engine.score_product(p, mp).to_dict()
+        if payload.only_eligible and not res.get("eligible"):
+            continue
+        scored.append(res)
+        if payload.persist:
+            await mcc_upsert_selection(payload.marketplace_id, res["product_sku"], res, selected_by=payload.selected_by)
+            await mcc_upsert_marketplace_product(payload.marketplace_id, res["product_sku"], canonical_product_json=p, listing_status=LISTING_NOT_LISTED)
+    scored.sort(key=lambda x: x.get("score", 0), reverse=True)
+    await mcc_audit("selection.run", marketplace_id=payload.marketplace_id, actor=str(principal.get("username") or "api"), message=f"Scored {len(scored)} products", details={"limit": payload.limit, "persist": payload.persist})
+    return {"status": "ok", "marketplace_id": payload.marketplace_id, "count": len(scored), "items": scored[:500]}
+
+
+@app.get("/api/marketplace-command/selection/{marketplace_id}")
+async def mcc_api_selection_list(marketplace_id: str, limit: int = Query(default=200, ge=1, le=2000)):
+    mp = await mcc_get_marketplace(marketplace_id)
+    if not mp:
+        raise HTTPException(status_code=404, detail="Marketplace not found")
+    items = await mcc_list_selections(marketplace_id, limit=limit)
+    return {"status": "ok", "marketplace_id": marketplace_id, "items": items}
+
+
+@app.get("/api/marketplace-command/matrix")
+async def mcc_api_matrix(marketplace_id: str | None = None, limit: int = Query(default=500, ge=1, le=5000)):
+    mps = [await mcc_get_marketplace(marketplace_id)] if marketplace_id else await mcc_list_marketplaces()
+    mps = [m for m in mps if m]
+    rows = []
+    products = await _mcc_products_for_scoring(limit=limit)
+    for p in products:
+        row = {"sku": p.get("sku"), "title": p.get("title"), "status": p.get("status"), "marketplaces": {}}
+        for mp in mps:
+            sel = None
+            mp_product = await mcc_get_marketplace_product(mp["id"], p["sku"])
+            sels = await mcc_list_selections(mp["id"], limit=2000)
+            for s in sels:
+                if s.get("product_sku") == p["sku"]:
+                    sel = s; break
+            row["marketplaces"][mp["id"]] = {
+                "marketplace_name": mp.get("name"),
+                "selection_status": (sel or {}).get("selection_status", "NOT_SELECTED"),
+                "score": (sel or {}).get("score"),
+                "listing_status": (mp_product or {}).get("listing_status", LISTING_NOT_LISTED),
+                "external_product_id": (mp_product or {}).get("external_product_id", ""),
+                "last_error": (mp_product or {}).get("last_error", ""),
+            }
+        rows.append(row)
+    return {"status": "ok", "marketplaces": [_mcc_safe_marketplace(m) for m in mps], "rows": rows}
+
+
+@app.post("/api/marketplace-command/export/preview")
+async def mcc_api_export_preview(payload: MarketplaceExportRequest, principal: dict[str, Any] = Depends(get_current_principal)):
+    payload.mode = EXPORT_DRY_RUN
+    return await mcc_api_export_start(payload, principal)
+
+
+@app.post("/api/marketplace-command/export/start")
+async def mcc_api_export_start(payload: MarketplaceExportRequest, principal: dict[str, Any] = Depends(get_current_principal)):
+    mp = await mcc_get_marketplace(payload.marketplace_id)
+    if not mp:
+        raise HTTPException(status_code=404, detail="Marketplace not found")
+    mode = (payload.mode or EXPORT_DRY_RUN).lower()
+    if mode not in {EXPORT_DRY_RUN, EXPORT_TEST, EXPORT_PRODUCTION}:
+        raise HTTPException(status_code=422, detail="Invalid mode")
+    if mode == EXPORT_PRODUCTION and not payload.approved:
+        raise HTTPException(status_code=409, detail="Production export requires explicit approved=true")
+
+    selections = await mcc_list_selections(payload.marketplace_id, limit=5000)
+    selected = []
+    if payload.product_skus:
+        wanted = set(payload.product_skus)
+        selected = [s for s in selections if s.get("product_sku") in wanted]
+    else:
+        selected = [s for s in selections if s.get("selection_status") == payload.selection_status]
+    selected = selected[:payload.limit]
+
+    job = await mcc_create_export_job(payload.marketplace_id, mode, str(principal.get("username") or "api"), payload.model_dump())
+    if mode == EXPORT_PRODUCTION:
+        await mcc_update_export_job(job["id"], approved_by=payload.approved_by or str(principal.get("username") or "api"), approved_at=utc_now(), status="approved")
+
+    await mcc_update_export_job(job["id"], status="running", started_at=utc_now(), total_items=len(selected))
+    connector = build_connector(mp)
+    success = failed = skipped = 0
+    item_results = []
+    products = await _mcc_products_for_scoring(limit=5000)
+    by_sku = {p.get("sku"): p for p in products}
+
+    for sel in selected:
+        sku = sel.get("product_sku")
+        product = by_sku.get(sku)
+        if not product:
+            skipped += 1
+            await mcc_add_export_item(job["id"], payload.marketplace_id, sku, status="skipped", error_message="Product not found in middleware catalog")
+            item_results.append({"sku": sku, "status": "skipped", "reason": "not_found"})
+            continue
+        if not sel.get("eligible") and mode != EXPORT_DRY_RUN:
+            skipped += 1
+            await mcc_add_export_item(job["id"], payload.marketplace_id, sku, status="skipped", error_message="Product not eligible by selection rules")
+            item_results.append({"sku": sku, "status": "skipped", "reason": "not_eligible"})
+            continue
+
+        if mode == EXPORT_DRY_RUN:
+            await mcc_add_export_item(job["id"], payload.marketplace_id, sku, status="dry_run", request_json={"sku": sku, "title": product.get("title")}, response_json={"validation": "ok", "eligible": sel.get("eligible"), "score": sel.get("score")})
+            success += 1
+            item_results.append({"sku": sku, "status": "dry_run", "score": sel.get("score")})
+            continue
+
+        if not connector:
+            failed += 1
+            msg = f"Connector not implemented for {mp.get('connector_type')}"
+            await mcc_add_export_item(job["id"], payload.marketplace_id, sku, status="failed", error_message=msg)
+            await mcc_upsert_marketplace_product(payload.marketplace_id, sku, listing_status=LISTING_ERROR, last_error=msg)
+            item_results.append({"sku": sku, "status": "failed", "error": msg})
+            continue
+
+        # real export path - only implemented connectors; no fake success
+        req = {"title": product.get("title"), "body_html": product.get("description") or "", "vendor": (product.get("raw") or {}).get("brand") or "Omni", "status": "draft" if mode == EXPORT_TEST else "active", "variants": [{"price": str(product.get("price") or 0), "sku": sku, "inventory_quantity": int(float(product.get("stock") or 0))}]}
+        try:
+            existing = await mcc_get_marketplace_product(payload.marketplace_id, sku)
+            ext_id = (existing or {}).get("external_product_id")
+            if ext_id:
+                res = await connector.update_listing(ext_id, req)
+                action = "update"
+            else:
+                res = await connector.create_listing(req)
+                action = "create"
+            if res.get("ok"):
+                external_id = str(res.get("external_id") or ext_id or "")
+                # verify status via connector API if possible
+                listing_status = LISTING_ERROR
+                status_raw = {}
+                if external_id and hasattr(connector, "get_listing_status"):
+                    try:
+                        status_raw = await connector.get_listing_status(external_id)
+                        listing_status = status_raw.get("status") or LISTING_ERROR
+                    except Exception as e:
+                        status_raw = {"status_check_error": str(e)}
+                        listing_status = LISTING_ERROR
+                await mcc_upsert_marketplace_product(payload.marketplace_id, sku, external_product_id=external_id, listing_status=listing_status, sync_status="exported", last_error="", last_exported_at=utc_now(), canonical_product_json=product)
+                await mcc_add_export_item(job["id"], payload.marketplace_id, sku, status="success", action=action, external_id=external_id, request_json=req, response_json={"export": res, "listing_status": status_raw})
+                success += 1
+                item_results.append({"sku": sku, "status": "success", "action": action, "external_id": external_id, "listing_status": listing_status})
+            else:
+                err = str(res.get("error") or res.get("message") or "export failed")[:2000]
+                failed += 1
+                await mcc_upsert_marketplace_product(payload.marketplace_id, sku, listing_status=LISTING_ERROR, last_error=err)
+                await mcc_add_export_item(job["id"], payload.marketplace_id, sku, status="failed", action="export", request_json=req, response_json=res, error_message=err)
+                item_results.append({"sku": sku, "status": "failed", "error": err})
+        except Exception as e:
+            err = str(e)[:2000]
+            failed += 1
+            await mcc_upsert_marketplace_product(payload.marketplace_id, sku, listing_status=LISTING_ERROR, last_error=err)
+            await mcc_add_export_item(job["id"], payload.marketplace_id, sku, status="failed", error_message=err)
+            item_results.append({"sku": sku, "status": "failed", "error": err})
+
+    final_status = "success" if failed == 0 else ("partial" if success > 0 else "failed")
+    job = await mcc_update_export_job(job["id"], status=final_status, finished_at=utc_now(), success_items=success, failed_items=failed, skipped_items=skipped, result_json={"items": item_results[:500], "mode": mode})
+    await mcc_audit("export.run", marketplace_id=payload.marketplace_id, job_id=job["id"], actor=str(principal.get("username") or "api"), message=f"Export {mode} {final_status}", details={"success": success, "failed": failed, "skipped": skipped})
+    return {"status": "ok", "job": job, "summary": {"success": success, "failed": failed, "skipped": skipped, "mode": mode}}
+
+
+@app.get("/api/marketplace-command/export/jobs")
+async def mcc_api_export_jobs(marketplace_id: str | None = None, limit: int = Query(default=100, ge=1, le=500)):
+    jobs = await mcc_list_export_jobs(marketplace_id=marketplace_id, limit=limit)
+    return {"status": "ok", "jobs": jobs}
+
+
+@app.get("/api/marketplace-command/export/jobs/{job_id}")
+async def mcc_api_export_job(job_id: str):
+    job = await mcc_get_export_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    items = await mcc_list_export_items(job_id, limit=1000)
+    return {"status": "ok", "job": job, "items": items}
+
+
+@app.get("/api/marketplace-command/audit")
+async def mcc_api_audit(marketplace_id: str = "", product_sku: str = "", limit: int = Query(default=200, ge=1, le=1000)):
+    items = await mcc_list_audit(marketplace_id=marketplace_id, product_sku=product_sku, limit=limit)
+    return {"status": "ok", "items": items}
+
+
+# ---------------------------------------------------------------------------
 # Shopware Integration API
 # ---------------------------------------------------------------------------
 
@@ -3153,6 +3497,10 @@ async def ui_integrations(request: Request):
 @app.get("/ui/marketplaces", response_class=HTMLResponse)
 async def ui_marketplaces(request: Request):
     return templates.TemplateResponse(request, "marketplaces.html", {"request": request})
+
+@app.get("/ui/marketplace-command-center", response_class=HTMLResponse)
+async def ui_marketplace_command_center(request: Request):
+    return templates.TemplateResponse(request, "marketplace_command_center.html", {"request": request})
 
 @app.get("/ui/ai-control", response_class=HTMLResponse)
 async def ui_ai_control(request: Request):
