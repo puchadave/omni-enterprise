@@ -5736,11 +5736,18 @@ async def job_get(job_id: str) -> dict[str, Any] | None:
         return dict(row) if row else None
 
 
+_JOB_UPDATE_ALLOWED = {
+    "type","status","payload_json","result_json","error_message","attempts","max_attempts","run_at",
+    "locked_by","locked_at","started_at","finished_at","created_by","correlation_id","updated_at",
+}
+
 async def job_update(job_id: str, **fields: Any) -> bool:
     if not fields: return False
+    safe = {k:v for k,v in fields.items() if k in _JOB_UPDATE_ALLOWED}
+    if not safe: return False
     if uses_postgres():
         sets=[]; vals=[]; i=1
-        for k,v in fields.items():
+        for k,v in safe.items():
             if k in {"payload_json","result_json"} and not isinstance(v,str): v=json.dumps(v,ensure_ascii=False,default=str)
             if k in {"run_at","locked_at","started_at","finished_at","created_at","updated_at"}: v=_pg_ts(v)
             sets.append(f"{k}=${i}"); vals.append(v); i+=1
@@ -5752,7 +5759,7 @@ async def job_update(job_id: str, **fields: Any) -> bool:
         return res.endswith('1')
     async with get_connection() as db:
         sets=[]; vals=[]
-        for k,v in fields.items():
+        for k,v in safe.items():
             if k in {"payload_json","result_json"} and not isinstance(v,str): v=json.dumps(v,ensure_ascii=False,default=str)
             sets.append(f"{k}=?"); vals.append(v)
         sets.append("updated_at=?"); vals.append(utc_now()); vals.append(job_id)
@@ -6725,12 +6732,17 @@ async def agent_action_get(action_id: str) -> dict[str, Any] | None:
         cur=await db.execute("SELECT * FROM ai_agent_actions WHERE id=?", (action_id,)); row=await cur.fetchone(); await cur.close(); return dict(row) if row else None
 
 
+_AGENT_ACTION_UPDATE_ALLOWED = {
+    "actor","prompt","tool_name","args_json","preview_json","status","requires_confirmation","result_json","error_message","executed_at",
+}
+
 async def agent_action_update(action_id: str, **fields: Any) -> dict[str, Any] | None:
     if not fields: return await agent_action_get(action_id)
-    now = utc_now()
+    safe = {k:v for k,v in fields.items() if k in _AGENT_ACTION_UPDATE_ALLOWED}
+    if not safe: return await agent_action_get(action_id)
     if uses_postgres():
         sets=[]; vals=[]; i=1
-        for k,v in fields.items():
+        for k,v in safe.items():
             if k in {'args_json','preview_json','result_json'} and not isinstance(v,str): v=json.dumps(v,ensure_ascii=False,default=str)
             if k=='executed_at': v=_pg_ts(v)
             sets.append(f"{k}=${i}"); vals.append(v); i+=1
@@ -6742,7 +6754,7 @@ async def agent_action_update(action_id: str, **fields: Any) -> dict[str, Any] |
         return dict(row) if row else None
     async with get_connection() as db:
         sets=[]; vals=[]
-        for k,v in fields.items():
+        for k,v in safe.items():
             if k in {'args_json','preview_json','result_json'} and not isinstance(v,str): v=json.dumps(v,ensure_ascii=False,default=str)
             if k=='requires_confirmation': v=1 if v else 0
             sets.append(f"{k}=?"); vals.append(v)
@@ -6825,17 +6837,25 @@ async def creative_job_create(data: dict[str, Any]) -> dict[str, Any]:
         return dict(row) if row else {"id": jid}
 
 
+_CREATIVE_JOB_UPDATE_ALLOWED = {
+    "project_id","job_type","capability","status","provider_id","model_id","prompt","negative_prompt",
+    "input_json","output_json","cost_json","error_message","requires_review","created_by","started_at","completed_at","updated_at",
+}
+
 async def creative_job_update(job_id: str, **fields: Any) -> dict[str, Any] | None:
     if not fields:
         return await creative_job_get(job_id)
+    safe = {k:v for k,v in fields.items() if k in _CREATIVE_JOB_UPDATE_ALLOWED}
+    if not safe:
+        return await creative_job_get(job_id)
     now = utc_now()
+    safe["updated_at"] = now
     if uses_postgres():
         sets=[]; vals=[]; i=1
-        for k,v in fields.items():
+        for k,v in safe.items():
             if k in {"input_json","output_json","cost_json"} and not isinstance(v,str): v=json.dumps(v,ensure_ascii=False,default=str)
-            if k in {"started_at","completed_at"}: v=_pg_ts(v)
+            if k in {"started_at","completed_at","updated_at"}: v=_pg_ts(v)
             sets.append(f"{k}=${i}"); vals.append(v); i+=1
-        sets.append(f"updated_at=${i}"); vals.append(now); i+=1
         vals.append(job_id)
         pool = await get_pg_pool()
         async with pool.acquire() as conn:
@@ -6844,11 +6864,11 @@ async def creative_job_update(job_id: str, **fields: Any) -> dict[str, Any] | No
         return dict(row) if row else None
     async with get_connection() as db:
         sets=[]; vals=[]
-        for k,v in fields.items():
+        for k,v in safe.items():
             if k in {"input_json","output_json","cost_json"} and not isinstance(v,str): v=json.dumps(v,ensure_ascii=False,default=str)
             if k=="requires_review": v=1 if v else 0
             sets.append(f"{k}=?"); vals.append(v)
-        sets.append("updated_at=?"); vals.append(now); vals.append(job_id)
+        vals.append(job_id)
         await db.execute(f"UPDATE creative_jobs SET {', '.join(sets)} WHERE id=?", tuple(vals))
         await db.commit(); cur = await db.execute("SELECT * FROM creative_jobs WHERE id=?", (job_id,)); row = await cur.fetchone(); await cur.close()
         return dict(row) if row else None
@@ -8025,12 +8045,16 @@ async def pi_create_export_job(mode: str, target: str, selection_run_id: str, re
         await db.commit(); cur=await db.execute("SELECT * FROM pi_export_jobs WHERE id=?", (eid,)); row=await cur.fetchone(); await cur.close()
     d=dict(row) if row else {"id":eid}; d["payload_json"]=_pi_json_loads(d.get("payload_json"),{}); d["result_json"]=_pi_json_loads(d.get("result_json"),{}); return d
 
+_PI_EXPORT_JOB_ALLOWED = {"status","result_json","payload_json","error_message","requested_count","selection_run_id","target","mode","updated_at"}
+
 async def pi_update_export_job(job_id: str, **fields: Any) -> None:
     if not fields: return
     now=utc_now(); fields["updated_at"]=now
+    safe = {k:v for k,v in fields.items() if k in _PI_EXPORT_JOB_ALLOWED}
+    if not safe: return
     if uses_postgres():
         sets=[]; vals=[]; i=1
-        for k,v in fields.items():
+        for k,v in safe.items():
             if k in {"payload_json","result_json"}: sets.append(f"{k}=${i}::jsonb"); vals.append(_pi_json_dumps(v))
             else: sets.append(f"{k}=${i}"); vals.append(v)
             i+=1
@@ -8040,7 +8064,7 @@ async def pi_update_export_job(job_id: str, **fields: Any) -> None:
             await conn.execute(f"UPDATE pi_export_jobs SET {', '.join(sets)} WHERE id=${i}", *vals)
         return
     sets=[]; vals=[]
-    for k,v in fields.items():
+    for k,v in safe.items():
         if k in {"payload_json","result_json"}: v=_pi_json_dumps(v)
         sets.append(f"{k}=?"); vals.append(v)
     vals.append(job_id)
