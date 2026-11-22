@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}One-Click Go-Live | OMNI-CORE{% endblock %}
+{% block content %}
+<div x-data="oneClick()" x-init="init()" class="space-y-4 max-w-[1500px] mx-auto">
+  <div class="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-3">
+    <div>
+      <h1 class="text-2xl md:text-3xl font-bold">One-Click Go-Live</h1>
+      <p class="text-slate-400">Zentrale Steuerung für Discovery, Preflight, Planung und Freigabe. Keine Fake-Verbindungen, keine blind veröffentlichten Produkte.</p>
+    </div>
+    <div class="flex gap-2 flex-wrap">
+      <button class="btn btn-secondary" @click="loadAll()">Aktualisieren</button>
+      <button class="btn btn-secondary" @click="discover()">Systeme erkennen</button>
+      <button class="btn btn-secondary" @click="preflight()">Go-Live testen</button>
+    </div>
+  </div>
+
+  <template x-if="error"><div class="banner banner-error"><div class="font-medium">Fehler</div><div class="text-sm mt-1" x-text="error"></div></div></template>
+  <template x-if="notice"><div class="banner banner-success" x-text="notice"></div></template>
+
+  <div class="grid md:grid-cols-2 xl:grid-cols-4 gap-3">
+    <div class="card p-4"><div class="text-xs text-slate-400">Launch-Status</div><div class="text-xl font-bold mt-1" x-text="state.status||'idle'"></div></div>
+    <div class="card p-4"><div class="text-xs text-slate-400">Zielzeit (ISO)</div><div class="text-sm font-mono mt-1 break-all" x-text="state.target_time||'nicht geplant'"></div></div>
+    <div class="card p-4"><div class="text-xs text-slate-400">Freigegeben</div><div class="text-xl font-bold mt-1" x-text="state.approved ? 'Ja' : 'Nein'"></div></div>
+    <div class="card p-4"><div class="text-xs text-slate-400">Preflight</div><div class="text-xl font-bold mt-1" x-text="(state.last_preflight && state.last_preflight.status) || preflightResult.status || '—'"></div></div>
+  </div>
+
+  <div class="card p-4 space-y-3">
+    <h2 class="font-semibold">Mitternachts-Verkaufsstart planen</h2>
+    <p class="text-xs text-slate-400">Persistenter Backend-Scheduler (Europe/Berlin Zielzeit als ISO speichern). Bei Blockern wird kein Produktivstart ausgeführt.</p>
+    <div class="grid md:grid-cols-3 gap-3">
+      <label><div class="label">Zielzeit (ISO, z.B. 2026-11-23T23:00:00Z)</div><input class="input" x-model="plan.target_time" placeholder="2026-11-23T23:00:00Z"></label>
+      <label><div class="label">Freigegeben durch</div><input class="input" x-model="plan.approved_by" placeholder="admin"></label>
+      <label class="flex items-center gap-2 text-sm mt-6"><input type="checkbox" x-model="plan.approved"> Freigabe erteilen</label>
+    </div>
+    <label class="flex items-center gap-2 text-sm" x-show="plan.approved"><input type="checkbox" x-model="plan.confirm"> Ich bestätige: Preflight-Blocker/Payment/Shipping/Legal müssen vor echtem Go-Live geprüft sein.</label>
+    <div class="flex gap-2 flex-wrap">
+      <button class="btn btn-primary" @click="planLaunch()" :disabled="busy" x-text="busy?'Läuft...':'START VERKAUF UM MITTERNACHT PLANEN'"></button>
+      <button class="btn btn-secondary" @click="executeDue()">Fälligen Launch prüfen</button>
+    </div>
+  </div>
+
+  <div class="grid xl:grid-cols-2 gap-4">
+    <div class="card p-4">
+      <h2 class="font-semibold mb-2">Systemstatus / Discovery</h2>
+      <pre class="text-xs bg-slate-950 border border-slate-800 rounded p-3 overflow-auto max-h-[420px]" x-text="JSON.stringify(discovery.systems||discovery, null, 2)"></pre>
+    </div>
+    <div class="card p-4">
+      <h2 class="font-semibold mb-2">Preflight Blocker / Warnungen</h2>
+      <div class="space-y-2 max-h-[420px] overflow-auto">
+        <template x-for="b in (preflightResult.blockers||[])" :key="b.code+b.message"><div class="banner banner-error"><div class="font-medium" x-text="b.code"></div><div class="text-xs mt-1" x-text="b.message"></div></div></template>
+        <template x-for="w in (preflightResult.warnings||[])" :key="w.code+w.message"><div class="banner banner-warn"><div class="font-medium" x-text="w.code"></div><div class="text-xs mt-1" x-text="w.message"></div></div></template>
+        <div x-show="!(preflightResult.blockers||[]).length && !(preflightResult.warnings||[]).length" class="text-sm text-slate-400">Noch kein Preflight ausgeführt.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card p-4">
+    <h2 class="font-semibold mb-2">Launch-Historie</h2>
+    <div class="table-wrap max-h-80"><table class="tbl"><thead><tr><th>Zeit</th><th>Aktion</th><th>Status/Result</th><th>Details</th></tr></thead><tbody>
+      <template x-for="h in (state.history||[])" :key="h.id"><tr><td class="text-xs text-slate-400" x-text="h.at"></td><td x-text="h.action"></td><td x-text="h.status||h.result||''"></td><td class="text-xs font-mono" x-text="JSON.stringify(h)"></td></tr></template>
+      <tr x-show="!(state.history||[]).length"><td colspan="99" class="text-center text-slate-500 py-6">Keine Historie.</td></tr>
+    </tbody></table></div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function oneClick(){return{
+  error:'', notice:'', busy:false, state:{}, discovery:{}, preflightResult:{},
+  plan:{target_time:'', approved:false, approved_by:'', confirm:false},
+  async init(){ await this.loadAll(); },
+  async loadAll(){ this.error=''; try{ const s=await apiFetch('/api/one-click/state'); this.state=s.state||{}; this.preflightResult=this.state.last_preflight||{}; }catch(e){ this.error=e.message; }},
+  async discover(){ this.error=''; try{ this.discovery=await apiFetch('/api/one-click/discover',{method:'POST'}); this.notice='Discovery abgeschlossen'; }catch(e){ this.error=e.message; }},
+  async preflight(){ this.error=''; try{ const r=await apiFetch('/api/one-click/preflight',{method:'POST'}); this.preflightResult=r.preflight||{}; this.notice='Preflight abgeschlossen: '+(this.preflightResult.status||'unknown'); await this.loadAll(); }catch(e){ this.error=e.message; }},
+  async planLaunch(){ this.error=''; this.busy=true; try{ const r=await apiFetch('/api/one-click/plan-launch',{method:'POST', body:JSON.stringify(this.plan)}); this.state=r.state||this.state; this.preflightResult=r.preflight||this.preflightResult; this.notice='Launch geplant: '+(this.state.status||''); }catch(e){ this.error=e.message; } this.busy=false; },
+  async executeDue(){ this.error=''; try{ const r=await apiFetch('/api/one-click/execute-due',{method:'POST'}); this.state=r.state||this.state; this.notice='Execute: '+(r.reason||r.status||'ok'); this.preflightResult=r.preflight||this.preflightResult; }catch(e){ this.error=e.message; }}
+}}
+</script>
+{% endblock %}

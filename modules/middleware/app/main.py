@@ -119,6 +119,9 @@ from services.marketplace_command_center import (
     MarketplaceScoringEngine, build_connector, connector_registry, summarize_matrix,
     LISTING_NOT_LISTED, LISTING_ONLINE, LISTING_ERROR, EXPORT_DRY_RUN, EXPORT_PRODUCTION, EXPORT_TEST,
 )
+from services.integration_orchestrator import (
+    discover_integrations, run_preflight, plan_launch, load_launch_state,
+)
 from services.competitor_provider import provider_registry
 from services.competitor_matching import ProductMatchingEngine
 from services.competitor_pricing import DynamicPricingEngine
@@ -223,7 +226,9 @@ RBAC_RULES: list[tuple[str, tuple[str, ...], str]] = [
     ("GET", ("/ui/erp-pim",), "products.read"),
     ("GET", ("/api/marketplace-command/", "/api/marketplaces/command-center/"), "connectors.read"),
     ("POST", ("/api/marketplace-command/", "/api/marketplaces/command-center/"), "connectors.configure"),
-    ("GET", ("/ui/integrations", "/ui/marketplaces", "/ui/marketplace-command-center"), "connectors.read"),
+    ("GET", ("/api/one-click/",), "system.read"),
+    ("POST", ("/api/one-click/",), "system.configure"),
+    ("GET", ("/ui/integrations", "/ui/marketplaces", "/ui/marketplace-command-center", "/ui/one-click-go-live"), "connectors.read"),
     ("GET", ("/ui/model-management",), "ai.configure"),
     ("GET", ("/ui/competitor-intelligence",), "competitor.read"),
     ("GET", ("/ui/trend-intelligence",), "trends.read"),
@@ -510,6 +515,7 @@ class AppRuntime:
         # Internal communication & control center
         self.event_bus: EventBus | None = None
         self.control_center: GlobalControlCenter | None = None
+        self.launch_task: asyncio.Task[None] | None = None
 
     @property
     def uptime_seconds(self) -> int:
@@ -654,6 +660,19 @@ async def persistent_job_worker() -> None:
             await asyncio.sleep(2)
 
 
+async def launch_scheduler_loop() -> None:
+    """Persisted one-click launch scheduler. Never publishes blindly on blockers."""
+    from services.integration_orchestrator import execute_due_launch
+    while True:
+        try:
+            await execute_due_launch(runtime)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Launch scheduler loop error")
+        await asyncio.sleep(30)
+
+
 async def scheduler_loop() -> None:
     """Evaluate scheduler_config and enqueue due jobs."""
     from datetime import datetime, timezone, timedelta
@@ -661,6 +680,7 @@ async def scheduler_loop() -> None:
     defaults = [
         ("matterhorn_import", 24*3600, {"mode": "safe"}),
         ("trend_analysis", 7*24*3600, {}),
+        ("marketplace_health_check", 3600, {}),
     ]
     for jt, interval, payload in defaults:
         try:
@@ -718,6 +738,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     runtime.trend_task = asyncio.create_task(trend_scheduler(), name="trend-scheduler")
     runtime.persistent_job_task = asyncio.create_task(persistent_job_worker(), name="persistent-job-worker")
     runtime.scheduler_task = asyncio.create_task(scheduler_loop(), name="scheduler-loop")
+    runtime.launch_task = asyncio.create_task(launch_scheduler_loop(), name="launch-scheduler-loop")
     # Initialize Shopware services
     runtime.shopware_export_manager = ExportManager(
         connection_manager=ShopwareConnectionManager("", "", ""),
@@ -759,10 +780,10 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
-        for task in (runtime.worker_task, runtime.trend_task, runtime.persistent_job_task, runtime.scheduler_task):
+        for task in (runtime.worker_task, runtime.trend_task, runtime.persistent_job_task, runtime.scheduler_task, runtime.launch_task):
             if task is not None:
                 task.cancel()
-        tasks = [task for task in (runtime.worker_task, runtime.trend_task, runtime.persistent_job_task, runtime.scheduler_task) if task is not None]
+        tasks = [task for task in (runtime.worker_task, runtime.trend_task, runtime.persistent_job_task, runtime.scheduler_task, runtime.launch_task) if task is not None]
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
         try:
@@ -2129,6 +2150,45 @@ async def integrations_health() -> dict[str, Any]:
     }
     overall_ok = db_ok
     return {"status": "ok" if overall_ok else "degraded", "integrations": integrations}
+
+# ---------------------------------------------------------------------------
+# One-Click Go-Live API
+# ---------------------------------------------------------------------------
+
+class OneClickPlanRequest(BaseModel):
+    target_time: str = Field(description="ISO datetime in UTC or with offset")
+    approved: bool = False
+    approved_by: str = ""
+    confirm: bool = False
+
+@app.get("/api/one-click/state")
+async def one_click_state():
+    state = await load_launch_state()
+    return {"status": "ok", "state": state}
+
+@app.post("/api/one-click/discover")
+async def one_click_discover():
+    result = await discover_integrations(runtime)
+    await write_log("INFO", "one_click_discover", "Integration discovery executed", {"systems": list((result.get("systems") or {}).keys())})
+    return result
+
+@app.post("/api/one-click/preflight")
+async def one_click_preflight():
+    return {"status": "ok", "preflight": await run_preflight(runtime)}
+
+@app.post("/api/one-click/plan-launch")
+async def one_click_plan(payload: OneClickPlanRequest, principal: dict[str, Any] = Depends(get_current_principal)):
+    if payload.approved and not payload.confirm:
+        raise HTTPException(status_code=409, detail="Approval requires confirm=true")
+    approved_by = payload.approved_by or str(principal.get("username") or principal.get("user_id") or "admin")
+    result = await plan_launch(runtime, target_time=payload.target_time, approved=payload.approved, approved_by=approved_by)
+    return {"status": "ok", **result}
+
+@app.post("/api/one-click/execute-due")
+async def one_click_execute_due(principal: dict[str, Any] = Depends(get_current_principal)):
+    result = await execute_due_launch(runtime)
+    return {"status": "ok", **result}
+
 
 # ---------------------------------------------------------------------------
 # Marketplace Command Center API
@@ -3513,6 +3573,10 @@ async def ui_marketplaces(request: Request):
 @app.get("/ui/marketplace-command-center", response_class=HTMLResponse)
 async def ui_marketplace_command_center(request: Request):
     return templates.TemplateResponse(request, "marketplace_command_center.html", {"request": request})
+
+@app.get("/ui/one-click-go-live", response_class=HTMLResponse)
+async def ui_one_click_go_live(request: Request):
+    return templates.TemplateResponse(request, "one_click_go_live.html", {"request": request})
 
 @app.get("/ui/ai-control", response_class=HTMLResponse)
 async def ui_ai_control(request: Request):
