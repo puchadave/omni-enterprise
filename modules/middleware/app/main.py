@@ -2265,7 +2265,7 @@ async def mcc_api_get_marketplace(marketplace_id: str):
 
 @app.post("/api/marketplace-command/marketplaces/{marketplace_id}/health")
 async def mcc_api_marketplace_health(marketplace_id: str):
-    mp = await mcc_get_marketplace(marketplace_id)
+    mp = await mcc_get_marketplace(marketplace_id, include_credentials=True)
     if not mp:
         raise HTTPException(status_code=404, detail="Marketplace not found")
     connector = build_connector(mp)
@@ -2280,7 +2280,7 @@ async def mcc_api_marketplace_health(marketplace_id: str):
 
 @app.post("/api/marketplace-command/selection/run")
 async def mcc_api_selection_run(payload: MarketplaceSelectionRunRequest, principal: dict[str, Any] = Depends(get_current_principal)):
-    mp = await mcc_get_marketplace(payload.marketplace_id)
+    mp = await mcc_get_marketplace(payload.marketplace_id, include_credentials=True)
     if not mp:
         raise HTTPException(status_code=404, detail="Marketplace not found")
     if payload.min_score is not None:
@@ -2345,7 +2345,7 @@ async def mcc_api_export_preview(payload: MarketplaceExportRequest, principal: d
 
 @app.post("/api/marketplace-command/export/start")
 async def mcc_api_export_start(payload: MarketplaceExportRequest, principal: dict[str, Any] = Depends(get_current_principal)):
-    mp = await mcc_get_marketplace(payload.marketplace_id)
+    mp = await mcc_get_marketplace(payload.marketplace_id, include_credentials=True)
     if not mp:
         raise HTTPException(status_code=404, detail="Marketplace not found")
     mode = (payload.mode or EXPORT_DRY_RUN).lower()

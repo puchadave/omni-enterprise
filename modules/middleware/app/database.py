@@ -8049,15 +8049,16 @@ async def pi_update_export_job(job_id: str, **fields: Any) -> None:
 
 # ── Marketplace Command Center helpers ───────────────────────────────────
 
-def _mcc_decode(row: dict[str, Any]) -> dict[str, Any]:
+def _mcc_decode(row: dict[str, Any], *, include_credentials: bool = False) -> dict[str, Any]:
     for k in ("config_json","credentials_json","reasons_json","blockers_json","recommendations_json","criteria_json","canonical_product_json","marketplace_content_json","marketplace_pricing_json","attribute_mapping_json","payload_json","result_json","request_json","response_json","raw_status_json","details_json"):
         if k in row and isinstance(row[k], str):
             try: row[k]=json.loads(row[k])
             except Exception: pass
-    # never expose credentials
     if "credentials_json" in row:
-        row["credentials_configured"] = bool(row.get("credentials_json"))
-        row["credentials_json"] = {"configured": bool(row.get("credentials_json"))}
+        creds = row.get("credentials_json") or {}
+        row["credentials_configured"] = bool(creds)
+        if not include_credentials:
+            row["credentials_json"] = {"configured": bool(creds)}
     for b in ("eligible","require_available_stock","require_valid_images","require_valid_pricing","require_category_mapping"):
         if b in row and isinstance(row[b], int):
             row[b]=bool(row[b])
@@ -8125,28 +8126,28 @@ async def mcc_upsert_marketplace(data: dict[str, Any]) -> dict[str, Any]:
         return _mcc_decode(dict(row)) if row else {"id": mid}
 
 
-async def mcc_list_marketplaces() -> list[dict[str, Any]]:
+async def mcc_list_marketplaces(*, include_credentials: bool = False) -> list[dict[str, Any]]:
     if uses_postgres():
         pool = await get_pg_pool()
         async with pool.acquire() as conn:
             rows = await conn.fetch("SELECT * FROM marketplaces ORDER BY created_at DESC")
-        return [_mcc_decode(dict(r)) for r in rows]
+        return [_mcc_decode(dict(r), include_credentials=include_credentials) for r in rows]
     async with get_connection() as db:
         cur = await db.execute("SELECT * FROM marketplaces ORDER BY created_at DESC")
         rows = await cur.fetchall(); await cur.close()
-        return [_mcc_decode(dict(r)) for r in rows]
+        return [_mcc_decode(dict(r), include_credentials=include_credentials) for r in rows]
 
 
-async def mcc_get_marketplace(marketplace_id: str) -> dict[str, Any] | None:
+async def mcc_get_marketplace(marketplace_id: str, *, include_credentials: bool = False) -> dict[str, Any] | None:
     if uses_postgres():
         pool = await get_pg_pool()
         async with pool.acquire() as conn:
             row = await conn.fetchrow("SELECT * FROM marketplaces WHERE id=$1", marketplace_id)
-        return _mcc_decode(dict(row)) if row else None
+        return _mcc_decode(dict(row), include_credentials=include_credentials) if row else None
     async with get_connection() as db:
         cur = await db.execute("SELECT * FROM marketplaces WHERE id=?", (marketplace_id,))
         row = await cur.fetchone(); await cur.close()
-        return _mcc_decode(dict(row)) if row else None
+        return _mcc_decode(dict(row), include_credentials=include_credentials) if row else None
 
 
 async def mcc_update_marketplace_health(marketplace_id: str, status: str, message: str) -> None:
