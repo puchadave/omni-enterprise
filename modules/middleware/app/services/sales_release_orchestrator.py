@@ -191,14 +191,17 @@ async def import_to_shopware(runtime: Any, *, limit: int = 100, actor: str = "sy
 async def run_preflight(runtime: Any) -> dict[str, Any]:
     blockers=[]; warnings=[]
     cm = next(iter((getattr(runtime,'shopware_connections',{}) or {}).values()), None)
+    shopware_url = os.getenv("SHOPWARE_URL") or os.getenv("SHOPWARE_APP_URL")
+    if not cm and shopware_url:
+        warnings.append({"code":"SHOPWARE_RUNTIME_CONNECTION_MISSING","message":"SHOPWARE_URL configured but no runtime Shopware connection registered; import requires configured connection/credentials."})
     if not cm: blockers.append({"code":"SHOPWARE_NOT_CONFIGURED","message":"No Shopware connection configured"})
     else:
         try:
             h = await cm.check_health()
             if not isinstance(h,dict) or h.get("status") in {"error","unhealthy","auth_error"}:
-                blockers.append({"code":"SHOPWARE_UNHEALTHY","message":f"Shopware health check failed: {h}"})
-        except Exception as e:
-            blockers.append({"code":"SHOPWARE_HEALTH_ERROR","message":str(e)[:300]})
+                blockers.append({"code":"SHOPWARE_UNHEALTHY","message":"Shopware health check failed"})
+        except Exception:
+            blockers.append({"code":"SHOPWARE_HEALTH_ERROR","message":"Shopware health check exception"})
     total = await count_products()
     if total <= 0: warnings.append({"code":"NO_PRODUCTS","message":"No products in catalog"})
     ready = await sales_state_list(limit=5000, status="READY_FOR_SALE")
