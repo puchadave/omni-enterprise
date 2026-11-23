@@ -103,6 +103,7 @@ class ShopwareConnectionManager:
         timeout: float = DEFAULT_TIMEOUT,
         retry_count: int = DEFAULT_RETRY_COUNT,
         retry_delay: float = DEFAULT_RETRY_DELAY,
+        host_header: str | None = None,
     ) -> None:
         self.shop_url: str = shop_url.rstrip("/")
         self.client_id: str = client_id
@@ -111,6 +112,7 @@ class ShopwareConnectionManager:
         self.timeout: float = timeout
         self.retry_count: int = retry_count
         self.retry_delay: float = retry_delay
+        self.host_header: str | None = (host_header or "").strip() or None
         self._client: httpx.AsyncClient | None = None
         self._token: ShopwareAuthToken | None = None
         self._request_count: int = 0
@@ -200,6 +202,8 @@ class ShopwareConnectionManager:
         token = await self._get_valid_token()
         url = endpoint
         request_headers: dict[str, str] = dict(token.authorization_header)
+        if self.host_header:
+            request_headers["Host"] = self.host_header
         if headers:
             request_headers.update(headers)
 

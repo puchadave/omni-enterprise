@@ -772,7 +772,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         if conn_data and conn_data.get('shop_url') and conn_data.get('client_id') and conn_data.get('client_secret'):
             from uuid import uuid4 as _uuid4
             _cid = str(conn_data.get('id') or _uuid4())
-            _cm = ShopwareConnectionManager(shop_url=str(conn_data['shop_url']).rstrip('/'), client_id=str(conn_data['client_id']), client_secret=str(conn_data['client_secret']), api_version=str(conn_data.get('api_version','6.0')))
+            _cm = ShopwareConnectionManager(shop_url=str(conn_data['shop_url']).rstrip('/'), client_id=str(conn_data['client_id']), client_secret=str(conn_data['client_secret']), api_version=str(conn_data.get('api_version','6.0')), host_header=str(conn_data.get('host_header') or os.getenv('SHOPWARE_HOST_HEADER','')) or None)
             runtime.shopware_connections[_cid] = _cm
             runtime.shopware_mapping_engines[_cid] = MappingEngine(get_default_mappings(_cid))
             await write_log('INFO','shopware_connection_autoloaded','Shopware connection auto-registered',{'connection_id':_cid,'shop_url':_cm.shop_url})
@@ -2624,6 +2624,7 @@ class ShopwareConnectionCreate(BaseModel):
     default_currency: str = "EUR"
     default_tax_rate: float = 19.0
     default_supplier: str = ""
+    host_header: str = ""
 
 class ShopwareMappingCreate(BaseModel):
     connection_id: str
@@ -2649,6 +2650,7 @@ async def create_shopware_connection(payload: ShopwareConnectionCreate):
         client_id=payload.api_client_id,
         client_secret=payload.api_client_secret,
         api_version=payload.shopware_version,
+        host_header=payload.host_header or None,
     )
     runtime.shopware_connections[conn_id] = cm
     runtime.shopware_mapping_engines[conn_id] = MappingEngine(
