@@ -373,44 +373,34 @@ class ShopwareConnectionManager:
         """Check Shopware API availability and return basic info."""
         await self._ensure_client()
         start = time.monotonic()
-        try:
-            # Try Store API health endpoint
-            response = await self._request("GET", "/store-api/health")
-            elapsed = time.monotonic() - start
-            self._request_count += 1
-            self._success_count += 1
-
-            return {
-                "status": "healthy",
-                "shop_url": self.shop_url,
-                "api_version": self.api_version,
-                "detected_version": self._api_version_detected or self.api_version,
-                "response_time_ms": int(elapsed * 1000),
-                "authenticated": self._token is not None and not self._token.is_expired,
-            }
-        except ShopwareAuthenticationError as exc:
-            self._error_count += 1
-            return {"status": "auth_error", "response_time_ms": int((time.monotonic() - start) * 1000), "error": str(exc)}
-        except ShopwareNotFoundError:
-            # Store API might not be at /health, try admin API
+        # Prefer admin API probes; dockware/sales-channel host routing can break store-api probes.
+        for endpoint, use_admin in [("/api/_info/version", True), ("/api/_action/system-info", True), ("/store-api/context", False)]:
             try:
-                response = await self._request("GET", "/api/_action/system-info", use_admin_api=True)
+                response = await self._request("GET", endpoint, use_admin_api=use_admin)
                 elapsed = time.monotonic() - start
                 self._success_count += 1
+                detected = self._api_version_detected or self.api_version
+                try:
+                    data = response.json()
+                    if isinstance(data, dict):
+                        detected = str(data.get("version") or data.get("shopwareVersion") or data.get("apiVersion") or detected)
+                except Exception:
+                    pass
                 return {
                     "status": "healthy",
                     "shop_url": self.shop_url,
                     "api_version": self.api_version,
-                    "detected_version": self._api_version_detected or self.api_version,
+                    "detected_version": detected,
                     "response_time_ms": int(elapsed * 1000),
                     "authenticated": self._token is not None and not self._token.is_expired,
                 }
-            except Exception as exc2:
+            except ShopwareAuthenticationError as exc:
                 self._error_count += 1
-                return {"status": "error", "response_time_ms": int((time.monotonic() - start) * 1000), "error": str(exc2)}
-        except Exception as exc:  # pylint: disable=broad-except
-            self._error_count += 1
-            return {"status": "error", "response_time_ms": int((time.monotonic() - start) * 1000), "error": str(exc)}
+                return {"status": "auth_error", "response_time_ms": int((time.monotonic() - start) * 1000), "error": str(exc)}
+            except Exception:
+                continue
+        self._error_count += 1
+        return {"status": "error", "response_time_ms": int((time.monotonic() - start) * 1000), "error": "No Shopware health endpoint responded successfully"}
 
     async def detect_version(self) -> str | None:
         """Attempt to detect the Shopware version."""
