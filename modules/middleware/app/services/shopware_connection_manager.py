@@ -311,7 +311,14 @@ class ShopwareConnectionManager:
     async def create_product(self, product_data: dict[str, Any]) -> dict[str, Any]:
         """Create a new product via Admin API."""
         response = await self._request("POST", "/api/product", json_body=product_data, use_admin_api=True)
-        return response.json()
+        if response.status_code == 204 or not (response.text or "").strip():
+            loc = response.headers.get("location") or response.headers.get("Location") or ""
+            pid = loc.rstrip("/").split("/")[-1] if loc else ""
+            return {"id": pid} if pid else {"status": "ok"}
+        try:
+            return response.json()
+        except Exception:
+            return {"status": "ok", "raw": response.text[:500]}
 
     async def update_product(self, product_id: str, product_data: dict[str, Any]) -> dict[str, Any]:
         """Update an existing product via Admin API (PATCH)."""

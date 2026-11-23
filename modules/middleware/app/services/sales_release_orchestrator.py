@@ -164,15 +164,24 @@ async def import_to_shopware(runtime: Any, *, limit: int = 100, actor: str = "sy
             }
             created = await cm.create_product(sw_payload)
             sw_id = str(created.get("id") or created.get("data",{}).get("id") or "")
+            if not sw_id:
+                # Shopware create often returns 204; fallback by productNumber
+                try:
+                    if hasattr(cm, '_request'):
+                        resp = await cm._request('POST','/api/search/product', json_body={"filter":[{"type":"equals","field":"productNumber","value":sku}],"limit":1}, use_admin_api=True)
+                        data = resp.json() if hasattr(resp,'json') else {}
+                        els = (data.get('data') or [])
+                        if els: sw_id = str(els[0].get('id') or '')
+                except Exception:
+                    pass
             await _set_state(sku,"IMPORTED",actor=actor,message="Imported to Shopware",shopware_product_id=sw_id, imported_at=now_iso())
-            # readback verification
             readback=None
-            if sw_id and hasattr(cm, 'get_product'):
-                try: readback = await cm.get_product(sw_id)
-                except Exception as e: readback={"error":str(e)}
-            elif hasattr(cm, 'request_admin'):
-                try: readback = await cm.request_admin('GET', f"/api/product/{sw_id}")
-                except Exception as e: readback={"error":str(e)}
+            if sw_id and hasattr(cm, '_request'):
+                try:
+                    rb = await cm._request('GET', f"/api/product/{sw_id}", use_admin_api=True)
+                    readback = rb.json() if hasattr(rb,'json') else {"raw": str(rb)}
+                except Exception as e:
+                    readback={"error":str(e)}
             ok_readback = bool(sw_id) and isinstance(readback, dict) and not readback.get("errors") and not readback.get("error")
             if ok_readback:
                 await _set_state(sku,"SHOPWARE_SYNCED",actor=actor,message="Shopware readback verified",shopware_readback_json=readback, synced_at=now_iso())
@@ -180,7 +189,7 @@ async def import_to_shopware(runtime: Any, *, limit: int = 100, actor: str = "sy
                 results.append({"sku":sku,"shopware_product_id":sw_id,"status":"READY_FOR_SALE"})
             else:
                 await _set_state(sku,"IMPORT_BLOCKED",actor=actor,message="Shopware readback failed",last_error="shopware_readback_failed",shopware_readback_json=readback or {"error":"missing_readback"})
-                errors.append({"sku":sku,"error":"shopware_readback_failed"})
+                errors.append({"sku":sku,"error":"shopware_readback_failed","shopware_product_id":sw_id})
         except Exception as e:
             await _set_state(sku,"IMPORT_BLOCKED",actor=actor,message="Shopware import failed",last_error=str(e)[:500])
             errors.append({"sku":sku,"error":str(e)[:300]})
