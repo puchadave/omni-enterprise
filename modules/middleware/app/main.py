@@ -1011,10 +1011,10 @@ def _has_permission(principal: dict[str, Any], permission: str | None) -> bool:
     if not permission:
         return False
     perms = set(principal.get("permissions") or [])
-    if permission == "system.unclassified":
-        return permission in perms
     if "*" in perms or principal.get("role") == "SUPERADMIN":
         return True
+    if permission == "system.unclassified":
+        return permission in perms
     return permission in perms
 
 
