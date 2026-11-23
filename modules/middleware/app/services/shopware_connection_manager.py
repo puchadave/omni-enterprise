@@ -159,7 +159,8 @@ class ShopwareConnectionManager:
             "grant_type": "client_credentials",
         }
 
-        response = await self._client.post(token_url, json=payload)
+        headers = {"Host": self.host_header} if self.host_header else None
+        response = await self._client.post(token_url, json=payload, headers=headers)
         self._request_count += 1
 
         if response.status_code == 200:
