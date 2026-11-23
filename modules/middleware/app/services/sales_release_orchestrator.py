@@ -149,20 +149,19 @@ async def import_to_shopware(runtime: Any, *, limit: int = 100, actor: str = "sy
             await _set_state(sku,"IMPORT_BLOCKED",actor=actor,message="No Shopware connection configured",last_error="shopware_not_configured")
             errors.append({"sku":sku,"error":"shopware_not_configured"}); continue
         try:
-            # minimal Shopware payload; real mapping engine may enrich
+            tax_id = os.getenv("SHOPWARE_DEFAULT_TAX_ID","") or getattr(cm, "default_tax_id", "") or "01994d23acaa735295fdd1be0ed54aff"
+            currency_id = os.getenv("SHOPWARE_DEFAULT_CURRENCY_ID","") or getattr(cm, "default_currency_id", "") or "b7d2554b0ce847cd82f3ac9bd1c0dfca"
+            gross = float(p.get("sale_price") or p.get("price") or 0)
+            net = round(gross / 1.19, 2) if gross else 0.0
             sw_payload={
                 "name": p.get("title") or sku,
                 "productNumber": sku,
                 "stock": int(float(p.get("stock_quantity") or p.get("stock") or 0)),
-                "taxId": os.getenv("SHOPWARE_DEFAULT_TAX_ID",""),
-                "price": [{"currencyId": os.getenv("SHOPWARE_DEFAULT_CURRENCY_ID",""), "gross": float(p.get("sale_price") or 0), "net": float(p.get("sale_price") or 0)/1.19, "linked": False}],
+                "taxId": tax_id,
+                "price": [{"currencyId": currency_id, "gross": gross, "net": net, "linked": False}],
                 "active": False,
                 "description": p.get("raw_description") or p.get("description") or "",
             }
-            # remove incomplete price if ids missing
-            if not sw_payload["price"][0]["currencyId"] or not sw_payload["taxId"]:
-                sw_payload.pop("price", None)
-                sw_payload.pop("taxId", None)
             created = await cm.create_product(sw_payload)
             sw_id = str(created.get("id") or created.get("data",{}).get("id") or "")
             await _set_state(sku,"IMPORTED",actor=actor,message="Imported to Shopware",shopware_product_id=sw_id, imported_at=now_iso())
