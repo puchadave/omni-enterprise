@@ -152,35 +152,39 @@ class ShopwareConnectionManager:
         await self._ensure_client()
         assert self._client is not None
 
-        token_url = f"{self.shop_url}/oauth/token"
         payload = {
             "client_id": self.client_id,
             "client_secret": self.client_secret,
             "grant_type": "client_credentials",
         }
-
         headers = {"Host": self.host_header} if self.host_header else None
-        response = await self._client.post(token_url, json=payload, headers=headers)
-        self._request_count += 1
-
-        if response.status_code == 200:
-            data = response.json()
-            self._success_count += 1
-            token = ShopwareAuthToken(
-                access_token=data["access_token"],
-                expires_in=int(data.get("expires_in", 3600)),
-            )
-            self._token = token
-            logger.info("Shopware authentication successful, token expires in %ds", token.expires_in)
-            return token
-        elif response.status_code in (401, 403):
-            self._error_count += 1
-            raise ShopwareAuthenticationError(
-                response.status_code, "Invalid client credentials", response.text
-            )
-        else:
+        last_resp = None
+        for token_url in [f"{self.shop_url}/api/oauth/token", f"{self.shop_url}/oauth/token"]:
+            response = await self._client.post(token_url, json=payload, headers=headers)
+            self._request_count += 1
+            last_resp = response
+            if response.status_code == 200:
+                data = response.json()
+                self._success_count += 1
+                token = ShopwareAuthToken(
+                    access_token=data["access_token"],
+                    expires_in=int(data.get("expires_in", 3600)),
+                )
+                self._token = token
+                logger.info("Shopware authentication successful, token expires in %ds", token.expires_in)
+                return token
+            if response.status_code in (401, 403):
+                self._error_count += 1
+                raise ShopwareAuthenticationError(response.status_code, "Invalid client credentials", response.text)
+            # try next endpoint on 404/html routing issues
+            if response.status_code == 404 or "text/html" in (response.headers.get("content-type") or ""):
+                continue
             self._error_count += 1
             raise ShopwareAPIError(response.status_code, response.text, response.text)
+        if last_resp is not None:
+            self._error_count += 1
+            raise ShopwareAPIError(last_resp.status_code, last_resp.text, last_resp.text)
+        raise ShopwareAPIError(0, "No token endpoint responded")
 
     async def _get_valid_token(self) -> ShopwareAuthToken:
         """Return a valid access token, refreshing if needed."""
