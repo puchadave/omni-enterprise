@@ -754,6 +754,30 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     )
     runtime.shopware_description_engine = DescriptionEngine()
     runtime.shopware_seo_center = SEOCenter()
+    # Auto-register Shopware connection from integration file/env (idempotent, no secrets logged)
+    try:
+        import json as _json, pathlib as _pl
+        candidates = [
+            _pl.Path('/app/integration/live/middleware-connection.json'),
+            _pl.Path('/app/data/shopware_connection.json'),
+            _pl.Path('integration/live/middleware-connection.json'),
+        ]
+        conn_data = None
+        for c in candidates:
+            if c.exists():
+                conn_data = _json.loads(c.read_text())
+                break
+        if not conn_data and os.getenv('SHOPWARE_URL') and os.getenv('SHOPWARE_CLIENT_ID') and os.getenv('SHOPWARE_CLIENT_SECRET'):
+            conn_data = {'shop_url': os.getenv('SHOPWARE_URL',''), 'client_id': os.getenv('SHOPWARE_CLIENT_ID',''), 'client_secret': os.getenv('SHOPWARE_CLIENT_SECRET',''), 'api_version': os.getenv('SHOPWARE_API_VERSION','6.0'), 'name': os.getenv('SHOPWARE_NAME','shopware-env')}
+        if conn_data and conn_data.get('shop_url') and conn_data.get('client_id') and conn_data.get('client_secret'):
+            from uuid import uuid4 as _uuid4
+            _cid = str(conn_data.get('id') or _uuid4())
+            _cm = ShopwareConnectionManager(shop_url=str(conn_data['shop_url']).rstrip('/'), client_id=str(conn_data['client_id']), client_secret=str(conn_data['client_secret']), api_version=str(conn_data.get('api_version','6.0')))
+            runtime.shopware_connections[_cid] = _cm
+            runtime.shopware_mapping_engines[_cid] = MappingEngine(get_default_mappings(_cid))
+            await write_log('INFO','shopware_connection_autoloaded','Shopware connection auto-registered',{'connection_id':_cid,'shop_url':_cm.shop_url})
+    except Exception:
+        logger.exception('Shopware auto-register failed')
     # Initialize Competitor Intelligence
     runtime.competitor_matching_engine = ProductMatchingEngine()
     runtime.competitor_pricing_engine = DynamicPricingEngine()
