@@ -3187,6 +3187,54 @@ CREATE TABLE IF NOT EXISTS ai_agent_actions (
 );
 
 
+
+-- ── Product Sales / Release / Go-Live (MID version) ─────────────────────
+CREATE TABLE IF NOT EXISTS product_sales_state (
+    sku TEXT PRIMARY KEY,
+    lifecycle_status TEXT NOT NULL DEFAULT 'DISCOVERED',
+    selection_score REAL NOT NULL DEFAULT 0,
+    selection_reason TEXT NOT NULL DEFAULT '',
+    validation_errors_json TEXT NOT NULL DEFAULT '[]',
+    shopware_product_id TEXT NOT NULL DEFAULT '',
+    shopware_readback_json TEXT NOT NULL DEFAULT '{}',
+    imported_at TEXT,
+    synced_at TEXT,
+    ready_for_sale_at TEXT,
+    online_at TEXT,
+    last_error TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS product_lifecycle_events (
+    id TEXT PRIMARY KEY,
+    sku TEXT NOT NULL DEFAULT '',
+    event_type TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT '',
+    actor TEXT NOT NULL DEFAULT 'system',
+    message TEXT NOT NULL DEFAULT '',
+    details_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_product_lifecycle_events_sku ON product_lifecycle_events(sku, created_at DESC);
+CREATE TABLE IF NOT EXISTS sales_go_live_runs (
+    id TEXT PRIMARY KEY,
+    status TEXT NOT NULL DEFAULT 'planned',
+    mode TEXT NOT NULL DEFAULT 'manual',
+    target_time TEXT,
+    requested_by TEXT NOT NULL DEFAULT '',
+    approved INTEGER NOT NULL DEFAULT 0,
+    preflight_json TEXT NOT NULL DEFAULT '{}',
+    result_json TEXT NOT NULL DEFAULT '{}',
+    error_message TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    finished_at TEXT
+);
+CREATE TABLE IF NOT EXISTS release_state (
+    key TEXT PRIMARY KEY,
+    value_json TEXT NOT NULL DEFAULT '{}',
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- ── Multimodal Creative Engine (foundation) ─────────────────────────────
 CREATE TABLE IF NOT EXISTS creative_projects (
     id TEXT PRIMARY KEY,
@@ -3616,6 +3664,51 @@ async def init_db() -> None:
                 "CREATE INDEX IF NOT EXISTS idx_product_attributes_product ON product_attributes(product_sku)",
                 "CREATE INDEX IF NOT EXISTS idx_product_attributes_name ON product_attributes(name)",
                 "CREATE INDEX IF NOT EXISTS idx_product_media_product ON product_media(product_sku, media_type)",
+                """CREATE TABLE IF NOT EXISTS product_sales_state (
+                    sku TEXT PRIMARY KEY,
+                    lifecycle_status TEXT NOT NULL DEFAULT 'DISCOVERED',
+                    selection_score NUMERIC(8,3) NOT NULL DEFAULT 0,
+                    selection_reason TEXT NOT NULL DEFAULT '',
+                    validation_errors_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+                    shopware_product_id TEXT NOT NULL DEFAULT '',
+                    shopware_readback_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    imported_at TIMESTAMPTZ,
+                    synced_at TIMESTAMPTZ,
+                    ready_for_sale_at TIMESTAMPTZ,
+                    online_at TIMESTAMPTZ,
+                    last_error TEXT NOT NULL DEFAULT '',
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )""",
+                """CREATE TABLE IF NOT EXISTS product_lifecycle_events (
+                    id TEXT PRIMARY KEY,
+                    sku TEXT NOT NULL DEFAULT '',
+                    event_type TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT '',
+                    actor TEXT NOT NULL DEFAULT 'system',
+                    message TEXT NOT NULL DEFAULT '',
+                    details_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )""",
+                "CREATE INDEX IF NOT EXISTS idx_product_lifecycle_events_sku ON product_lifecycle_events(sku, created_at DESC)",
+                """CREATE TABLE IF NOT EXISTS sales_go_live_runs (
+                    id TEXT PRIMARY KEY,
+                    status TEXT NOT NULL DEFAULT 'planned',
+                    mode TEXT NOT NULL DEFAULT 'manual',
+                    target_time TIMESTAMPTZ,
+                    requested_by TEXT NOT NULL DEFAULT '',
+                    approved BOOLEAN NOT NULL DEFAULT FALSE,
+                    preflight_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    result_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    error_message TEXT NOT NULL DEFAULT '',
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    finished_at TIMESTAMPTZ
+                )""",
+                """CREATE TABLE IF NOT EXISTS release_state (
+                    key TEXT PRIMARY KEY,
+                    value_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )""",
                 "ALTER TABLE matterhorn_feeds ADD COLUMN IF NOT EXISTS feed_url TEXT",
                 "ALTER TABLE matterhorn_feeds ADD COLUMN IF NOT EXISTS auth_header TEXT NOT NULL DEFAULT ''",
                 "ALTER TABLE matterhorn_feeds ADD COLUMN IF NOT EXISTS last_imported_at TIMESTAMPTZ",
@@ -3698,6 +3791,11 @@ async def init_db() -> None:
             "ALTER TABLE import_runs ADD COLUMN skipped INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE import_runs ADD COLUMN created_count INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE import_runs ADD COLUMN updated_count INTEGER NOT NULL DEFAULT 0",
+            "CREATE TABLE IF NOT EXISTS product_sales_state (sku TEXT PRIMARY KEY, lifecycle_status TEXT NOT NULL DEFAULT 'DISCOVERED', selection_score REAL NOT NULL DEFAULT 0, selection_reason TEXT NOT NULL DEFAULT '', validation_errors_json TEXT NOT NULL DEFAULT '[]', shopware_product_id TEXT NOT NULL DEFAULT '', shopware_readback_json TEXT NOT NULL DEFAULT '{}', imported_at TEXT, synced_at TEXT, ready_for_sale_at TEXT, online_at TEXT, last_error TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT (datetime('now')))",
+            "CREATE TABLE IF NOT EXISTS product_lifecycle_events (id TEXT PRIMARY KEY, sku TEXT NOT NULL DEFAULT '', event_type TEXT NOT NULL, status TEXT NOT NULL DEFAULT '', actor TEXT NOT NULL DEFAULT 'system', message TEXT NOT NULL DEFAULT '', details_json TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL DEFAULT (datetime('now')))",
+            "CREATE INDEX IF NOT EXISTS idx_product_lifecycle_events_sku ON product_lifecycle_events(sku, created_at DESC)",
+            "CREATE TABLE IF NOT EXISTS sales_go_live_runs (id TEXT PRIMARY KEY, status TEXT NOT NULL DEFAULT 'planned', mode TEXT NOT NULL DEFAULT 'manual', target_time TEXT, requested_by TEXT NOT NULL DEFAULT '', approved INTEGER NOT NULL DEFAULT 0, preflight_json TEXT NOT NULL DEFAULT '{}', result_json TEXT NOT NULL DEFAULT '{}', error_message TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')), finished_at TEXT)",
+            "CREATE TABLE IF NOT EXISTS release_state (key TEXT PRIMARY KEY, value_json TEXT NOT NULL DEFAULT '{}', updated_at TEXT NOT NULL DEFAULT (datetime('now')))",
             "ALTER TABLE import_runs ADD COLUMN variants_linked INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE import_runs ADD COLUMN summary_json TEXT NOT NULL DEFAULT '{}'",
             "ALTER TABLE import_runs ADD COLUMN protocol_json TEXT NOT NULL DEFAULT '{}'",
@@ -8482,3 +8580,182 @@ async def mcc_overview() -> dict[str, Any]:
         "recent_jobs": jobs[:10],
         "marketplaces": mps,
     }
+
+
+# --- MID release / sales lifecycle helpers ---
+
+async def sales_state_upsert(sku: str, **fields: Any) -> dict[str, Any]:
+    now = utc_now()
+    sku = str(sku or '').strip()
+    if not sku:
+        raise ValueError('sku required')
+    allowed = {
+        'lifecycle_status','selection_score','selection_reason','validation_errors_json',
+        'shopware_product_id','shopware_readback_json','imported_at','synced_at','ready_for_sale_at','online_at','last_error'
+    }
+    data = {k:v for k,v in fields.items() if k in allowed}
+    if 'validation_errors_json' in data and not isinstance(data['validation_errors_json'], str):
+        data['validation_errors_json'] = _json_dump(data['validation_errors_json'], [])
+    if 'shopware_readback_json' in data and not isinstance(data['shopware_readback_json'], str):
+        data['shopware_readback_json'] = _json_dump(data['shopware_readback_json'], {})
+    if uses_postgres():
+        pool = await get_pg_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT * FROM product_sales_state WHERE sku=$1", sku)
+            if row is None:
+                await conn.execute(
+                    """INSERT INTO product_sales_state(sku,lifecycle_status,selection_score,selection_reason,validation_errors_json,shopware_product_id,shopware_readback_json,imported_at,synced_at,ready_for_sale_at,online_at,last_error,updated_at)
+                       VALUES($1,$2,$3,$4,$5::jsonb,$6,$7::jsonb,$8::timestamptz,$9::timestamptz,$10::timestamptz,$11::timestamptz,$12,NOW())""",
+                    sku, str(data.get('lifecycle_status') or 'DISCOVERED'), float(data.get('selection_score') or 0), str(data.get('selection_reason') or ''),
+                    data.get('validation_errors_json') or '[]', str(data.get('shopware_product_id') or ''), data.get('shopware_readback_json') or '{}',
+                    data.get('imported_at'), data.get('synced_at'), data.get('ready_for_sale_at'), data.get('online_at'), str(data.get('last_error') or ''),
+                )
+            elif data:
+                sets=[]; args=[]
+                for k,v in data.items():
+                    args.append(v)
+                    cast='::jsonb' if k.endswith('_json') else ('::timestamptz' if k.endswith('_at') else '')
+                    sets.append(f"{k}=${len(args)}{cast}")
+                args.append(sku)
+                await conn.execute(f"UPDATE product_sales_state SET {', '.join(sets)}, updated_at=NOW() WHERE sku=${len(args)}", *args)
+            row = await conn.fetchrow("SELECT * FROM product_sales_state WHERE sku=$1", sku)
+            return dict(row) if row else {'sku': sku}
+    async with get_connection() as db:
+        cur = await db.execute("SELECT * FROM product_sales_state WHERE sku=?", (sku,))
+        row = await cur.fetchone(); await cur.close()
+        if row is None:
+            await db.execute(
+                """INSERT INTO product_sales_state(sku,lifecycle_status,selection_score,selection_reason,validation_errors_json,shopware_product_id,shopware_readback_json,imported_at,synced_at,ready_for_sale_at,online_at,last_error,updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (sku, str(data.get('lifecycle_status') or 'DISCOVERED'), float(data.get('selection_score') or 0), str(data.get('selection_reason') or ''),
+                 data.get('validation_errors_json') or '[]', str(data.get('shopware_product_id') or ''), data.get('shopware_readback_json') or '{}',
+                 data.get('imported_at'), data.get('synced_at'), data.get('ready_for_sale_at'), data.get('online_at'), str(data.get('last_error') or ''), now)
+            )
+        elif data:
+            sets=[]; args=[]
+            for k,v in data.items(): sets.append(f"{k}=?"); args.append(v)
+            args.extend([now, sku])
+            await db.execute(f"UPDATE product_sales_state SET {', '.join(sets)}, updated_at=? WHERE sku=?", tuple(args))
+        await db.commit()
+        cur = await db.execute("SELECT * FROM product_sales_state WHERE sku=?", (sku,))
+        row = await cur.fetchone(); await cur.close(); return dict(row) if row else {'sku': sku}
+
+
+async def sales_state_get(sku: str) -> dict[str, Any] | None:
+    if uses_postgres():
+        pool = await get_pg_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT * FROM product_sales_state WHERE sku=$1", sku)
+        return dict(row) if row else None
+    async with get_connection() as db:
+        cur = await db.execute("SELECT * FROM product_sales_state WHERE sku=?", (sku,))
+        row = await cur.fetchone(); await cur.close(); return dict(row) if row else None
+
+
+async def sales_state_list(limit: int = 500, status: str | None = None) -> list[dict[str, Any]]:
+    limit = min(max(limit,1),5000)
+    if uses_postgres():
+        pool = await get_pg_pool()
+        q = "SELECT * FROM product_sales_state" + (" WHERE lifecycle_status=$1" if status else "") + " ORDER BY updated_at DESC LIMIT $" + ("2" if status else "1")
+        params = (status, limit) if status else (limit,)
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(q, *params)
+        return [dict(r) for r in rows]
+    async with get_connection() as db:
+        if status:
+            cur = await db.execute("SELECT * FROM product_sales_state WHERE lifecycle_status=? ORDER BY updated_at DESC LIMIT ?", (status, limit))
+        else:
+            cur = await db.execute("SELECT * FROM product_sales_state ORDER BY updated_at DESC LIMIT ?", (limit,))
+        rows = await cur.fetchall(); await cur.close(); return [dict(r) for r in rows]
+
+
+async def lifecycle_event_add(sku: str, event_type: str, status: str = '', *, actor: str = 'system', message: str = '', details: Any = None) -> dict[str, Any]:
+    import uuid as _uuid
+    eid = str(_uuid.uuid4()); now = utc_now(); payload = _json_dump(details or {}, {})
+    if uses_postgres():
+        pool = await get_pg_pool()
+        async with pool.acquire() as conn:
+            await conn.execute("INSERT INTO product_lifecycle_events(id,sku,event_type,status,actor,message,details_json,created_at) VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,NOW())", eid, str(sku or ''), str(event_type), str(status), str(actor), str(message), payload)
+            row = await conn.fetchrow("SELECT * FROM product_lifecycle_events WHERE id=$1", eid)
+        return dict(row) if row else {'id': eid}
+    async with get_connection() as db:
+        await db.execute("INSERT INTO product_lifecycle_events(id,sku,event_type,status,actor,message,details_json,created_at) VALUES (?,?,?,?,?,?,?,?)", (eid, str(sku or ''), str(event_type), str(status), str(actor), str(message), payload, now))
+        await db.commit(); cur = await db.execute("SELECT * FROM product_lifecycle_events WHERE id=?", (eid,)); row=await cur.fetchone(); await cur.close(); return dict(row) if row else {'id':eid}
+
+
+async def sales_go_live_run_create(data: dict[str, Any]) -> dict[str, Any]:
+    import uuid as _uuid
+    rid=str(data.get('id') or _uuid.uuid4()); now=utc_now()
+    pre=_json_dump(data.get('preflight_json') or {}, {}); res=_json_dump(data.get('result_json') or {}, {})
+    if uses_postgres():
+        pool=await get_pg_pool()
+        async with pool.acquire() as conn:
+            await conn.execute("""INSERT INTO sales_go_live_runs(id,status,mode,target_time,requested_by,approved,preflight_json,result_json,error_message,created_at,updated_at,finished_at)
+                                  VALUES($1,$2,$3,$4::timestamptz,$5,$6,$7::jsonb,$8::jsonb,$9,NOW(),NOW(),$10::timestamptz)""",
+                               rid,str(data.get('status') or 'planned'),str(data.get('mode') or 'manual'),data.get('target_time'),str(data.get('requested_by') or ''),bool(data.get('approved')),pre,res,str(data.get('error_message') or ''),data.get('finished_at'))
+            row=await conn.fetchrow("SELECT * FROM sales_go_live_runs WHERE id=$1", rid)
+        return dict(row) if row else {'id':rid}
+    async with get_connection() as db:
+        await db.execute("""INSERT INTO sales_go_live_runs(id,status,mode,target_time,requested_by,approved,preflight_json,result_json,error_message,created_at,updated_at,finished_at)
+                            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""", (rid,str(data.get('status') or 'planned'),str(data.get('mode') or 'manual'),data.get('target_time'),str(data.get('requested_by') or ''),1 if data.get('approved') else 0,pre,res,str(data.get('error_message') or ''),now,now,data.get('finished_at')))
+        await db.commit(); cur=await db.execute("SELECT * FROM sales_go_live_runs WHERE id=?", (rid,)); row=await cur.fetchone(); await cur.close(); return dict(row) if row else {'id':rid}
+
+
+async def sales_go_live_run_update(run_id: str, **fields: Any) -> dict[str, Any] | None:
+    allowed={'status','mode','target_time','requested_by','approved','preflight_json','result_json','error_message','finished_at'}
+    data={k:v for k,v in fields.items() if k in allowed}
+    if 'preflight_json' in data and not isinstance(data['preflight_json'], str): data['preflight_json']=_json_dump(data['preflight_json'],{})
+    if 'result_json' in data and not isinstance(data['result_json'], str): data['result_json']=_json_dump(data['result_json'],{})
+    if not data: return None
+    if uses_postgres():
+        pool=await get_pg_pool(); sets=[]; args=[]
+        for k,v in data.items():
+            args.append(v); cast='::jsonb' if k.endswith('_json') else ('::timestamptz' if k.endswith('_at') or k=='target_time' else ''); sets.append(f"{k}=${len(args)}{cast}")
+        args.append(run_id)
+        async with pool.acquire() as conn:
+            await conn.execute(f"UPDATE sales_go_live_runs SET {', '.join(sets)}, updated_at=NOW() WHERE id=${len(args)}", *args)
+            row=await conn.fetchrow("SELECT * FROM sales_go_live_runs WHERE id=$1", run_id)
+        return dict(row) if row else None
+    async with get_connection() as db:
+        sets=[]; args=[]
+        for k,v in data.items():
+            if k=='approved': v=1 if v else 0
+            sets.append(f"{k}=?"); args.append(v)
+        args.extend([utc_now(), run_id])
+        await db.execute(f"UPDATE sales_go_live_runs SET {', '.join(sets)}, updated_at=? WHERE id=?", tuple(args)); await db.commit()
+        cur=await db.execute("SELECT * FROM sales_go_live_runs WHERE id=?", (run_id,)); row=await cur.fetchone(); await cur.close(); return dict(row) if row else None
+
+
+async def sales_go_live_runs_list(limit: int = 50) -> list[dict[str, Any]]:
+    limit=min(max(limit,1),200)
+    if uses_postgres():
+        pool=await get_pg_pool()
+        async with pool.acquire() as conn:
+            rows=await conn.fetch("SELECT * FROM sales_go_live_runs ORDER BY created_at DESC LIMIT $1", limit)
+        return [dict(r) for r in rows]
+    async with get_connection() as db:
+        cur=await db.execute("SELECT * FROM sales_go_live_runs ORDER BY created_at DESC LIMIT ?", (limit,))
+        rows=await cur.fetchall(); await cur.close(); return [dict(r) for r in rows]
+
+
+async def release_state_set(key: str, value: Any) -> dict[str, Any]:
+    now=utc_now(); payload=_json_dump(value, {})
+    if uses_postgres():
+        pool=await get_pg_pool()
+        async with pool.acquire() as conn:
+            await conn.execute("INSERT INTO release_state(key,value_json,updated_at) VALUES($1,$2::jsonb,NOW()) ON CONFLICT(key) DO UPDATE SET value_json=EXCLUDED.value_json, updated_at=NOW()", key, payload)
+            row=await conn.fetchrow("SELECT * FROM release_state WHERE key=$1", key)
+        return dict(row) if row else {'key':key}
+    async with get_connection() as db:
+        await db.execute("INSERT INTO release_state(key,value_json,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json, updated_at=excluded.updated_at", (key,payload,now))
+        await db.commit(); cur=await db.execute("SELECT * FROM release_state WHERE key=?", (key,)); row=await cur.fetchone(); await cur.close(); return dict(row) if row else {'key':key}
+
+
+async def release_state_get(key: str) -> dict[str, Any] | None:
+    if uses_postgres():
+        pool=await get_pg_pool()
+        async with pool.acquire() as conn:
+            row=await conn.fetchrow("SELECT * FROM release_state WHERE key=$1", key)
+        return dict(row) if row else None
+    async with get_connection() as db:
+        cur=await db.execute("SELECT * FROM release_state WHERE key=?", (key,)); row=await cur.fetchone(); await cur.close(); return dict(row) if row else None

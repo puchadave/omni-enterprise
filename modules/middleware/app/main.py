@@ -114,6 +114,7 @@ from database import (
     mcc_upsert_selection, mcc_list_selections, mcc_upsert_marketplace_product, mcc_get_marketplace_product,
     mcc_list_marketplace_products, mcc_create_export_job, mcc_update_export_job, mcc_get_export_job,
     mcc_list_export_jobs, mcc_add_export_item, mcc_list_export_items, mcc_audit, mcc_list_audit, mcc_overview,
+    release_state_get, release_state_set, sales_go_live_runs_list, sales_state_list,
 )
 from services.marketplace_command_center import (
     MarketplaceScoringEngine, build_connector, connector_registry, summarize_matrix,
@@ -121,6 +122,13 @@ from services.marketplace_command_center import (
 )
 from services.integration_orchestrator import (
     discover_integrations, run_preflight, plan_launch, load_launch_state,
+)
+from services.sales_release_orchestrator import (
+    import_to_shopware as mid_import_to_shopware,
+    run_preflight as mid_sales_preflight,
+    select_products as mid_select_products,
+    start_sales as mid_start_sales,
+    validate_selected as mid_validate_selected,
 )
 from services.competitor_provider import provider_registry
 from services.competitor_matching import ProductMatchingEngine
@@ -2164,6 +2172,9 @@ class OneClickPlanRequest(BaseModel):
 @app.get("/api/one-click/state")
 async def one_click_state():
     state = await load_launch_state()
+    state["release_state"] = await release_state_get("mid_release")
+    state["sales_states_count"] = len(await sales_state_list(limit=5000))
+    state["recent_runs"] = await sales_go_live_runs_list(limit=10)
     return {"status": "ok", "state": state}
 
 @app.post("/api/one-click/discover")
@@ -2174,7 +2185,8 @@ async def one_click_discover():
 
 @app.post("/api/one-click/preflight")
 async def one_click_preflight():
-    return {"status": "ok", "preflight": await run_preflight(runtime)}
+    preflight = await mid_sales_preflight(runtime)
+    return {"status": "ok", "preflight": preflight}
 
 @app.post("/api/one-click/plan-launch")
 async def one_click_plan(payload: OneClickPlanRequest, principal: dict[str, Any] = Depends(get_current_principal)):
@@ -2188,6 +2200,43 @@ async def one_click_plan(payload: OneClickPlanRequest, principal: dict[str, Any]
 async def one_click_execute_due(principal: dict[str, Any] = Depends(get_current_principal)):
     result = await execute_due_launch(runtime)
     return {"status": "ok", **result}
+
+
+# ---------------------------------------------------------------------------
+# MID Release / Sales Start API
+# ---------------------------------------------------------------------------
+
+class SalesStartRequest(BaseModel):
+    approved: bool = False
+    mode: str = "manual"
+    confirm: bool = False
+
+@app.post("/api/sales-release/select")
+async def sales_release_select(limit: int = Query(default=50, ge=1, le=500), min_score: float = Query(default=55.0, ge=0, le=100), principal: dict[str, Any] = Depends(get_current_principal)):
+    return await mid_select_products(limit=limit, min_score=min_score, actor=str(principal.get("username") or principal.get("user_id") or "api"))
+
+@app.post("/api/sales-release/validate")
+async def sales_release_validate(principal: dict[str, Any] = Depends(get_current_principal)):
+    return await mid_validate_selected(actor=str(principal.get("username") or principal.get("user_id") or "api"))
+
+@app.post("/api/sales-release/import-shopware")
+async def sales_release_import(limit: int = Query(default=100, ge=1, le=500), principal: dict[str, Any] = Depends(get_current_principal)):
+    return await mid_import_to_shopware(runtime, limit=limit, actor=str(principal.get("username") or principal.get("user_id") or "api"))
+
+@app.post("/api/sales-release/start")
+async def sales_release_start(payload: SalesStartRequest, principal: dict[str, Any] = Depends(get_current_principal)):
+    if payload.approved and not payload.confirm:
+        raise HTTPException(status_code=409, detail="Approval requires confirm=true")
+    return await mid_start_sales(runtime, actor=str(principal.get("username") or principal.get("user_id") or "api"), mode=payload.mode, approved=payload.approved)
+
+@app.get("/api/sales-release/state")
+async def sales_release_state(limit: int = Query(default=200, ge=1, le=2000)):
+    return {
+        "status": "ok",
+        "release_state": await release_state_get("mid_release"),
+        "product_states": await sales_state_list(limit=limit),
+        "runs": await sales_go_live_runs_list(limit=20),
+    }
 
 
 # ---------------------------------------------------------------------------

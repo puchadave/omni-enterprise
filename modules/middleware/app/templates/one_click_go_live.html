@@ -11,11 +11,20 @@
       <button class="btn btn-secondary" @click="loadAll()">Aktualisieren</button>
       <button class="btn btn-secondary" @click="discover()">Systeme erkennen</button>
       <button class="btn btn-secondary" @click="preflight()">Go-Live testen</button>
+      <button class="btn btn-secondary" @click="salesSelect()">KI-Selektion</button>
+      <button class="btn btn-secondary" @click="salesValidate()">Validieren</button>
+      <button class="btn btn-secondary" @click="salesImport()">Import Shopware</button>
+      <button class="btn btn-danger" @click="salesStart()">START PRODUCTIVE SALES</button>
     </div>
   </div>
 
   <template x-if="error"><div class="banner banner-error"><div class="font-medium">Fehler</div><div class="text-sm mt-1" x-text="error"></div></div></template>
   <template x-if="notice"><div class="banner banner-success" x-text="notice"></div></template>
+
+  <div class="card p-4" x-show="release.release_state">
+    <h2 class="font-semibold mb-2">MID Release / Sales State</h2>
+    <pre class="text-xs bg-slate-950 border border-slate-800 rounded p-3 overflow-auto max-h-[240px]" x-text="JSON.stringify(release,null,2)"></pre>
+  </div>
 
   <div class="grid md:grid-cols-2 xl:grid-cols-4 gap-3">
     <div class="card p-4"><div class="text-xs text-slate-400">Launch-Status</div><div class="text-xl font-bold mt-1" x-text="state.status||'idle'"></div></div>
@@ -66,14 +75,19 @@
 {% block scripts %}
 <script>
 function oneClick(){return{
-  error:'', notice:'', busy:false, state:{}, discovery:{}, preflightResult:{},
+  error:'', notice:'', busy:false, state:{}, discovery:{}, preflightResult:{}, release:{},
   plan:{target_time:'', approved:false, approved_by:'', confirm:false},
-  async init(){ await this.loadAll(); },
-  async loadAll(){ this.error=''; try{ const s=await apiFetch('/api/one-click/state'); this.state=s.state||{}; this.preflightResult=this.state.last_preflight||{}; }catch(e){ this.error=e.message; }},
+  async init(){ await this.loadAll(); await this.loadRelease(); },
+  async loadAll(){ this.error=''; try{ const s=await apiFetch('/api/one-click/state'); this.state=s.state||{}; this.preflightResult=this.state.last_preflight||{}; this.release=s.state||{}; }catch(e){ this.error=e.message; }},
+  async loadRelease(){ try{ this.release=await apiFetch('/api/sales-release/state?limit=100'); }catch(e){ /* optional */ } },
   async discover(){ this.error=''; try{ this.discovery=await apiFetch('/api/one-click/discover',{method:'POST'}); this.notice='Discovery abgeschlossen'; }catch(e){ this.error=e.message; }},
-  async preflight(){ this.error=''; try{ const r=await apiFetch('/api/one-click/preflight',{method:'POST'}); this.preflightResult=r.preflight||{}; this.notice='Preflight abgeschlossen: '+(this.preflightResult.status||'unknown'); await this.loadAll(); }catch(e){ this.error=e.message; }},
+  async preflight(){ this.error=''; try{ const r=await apiFetch('/api/one-click/preflight',{method:'POST'}); this.preflightResult=r.preflight||{}; this.notice='Preflight abgeschlossen: '+(this.preflightResult.status||'unknown'); await this.loadAll(); await this.loadRelease(); }catch(e){ this.error=e.message; }},
   async planLaunch(){ this.error=''; this.busy=true; try{ const r=await apiFetch('/api/one-click/plan-launch',{method:'POST', body:JSON.stringify(this.plan)}); this.state=r.state||this.state; this.preflightResult=r.preflight||this.preflightResult; this.notice='Launch geplant: '+(this.state.status||''); }catch(e){ this.error=e.message; } this.busy=false; },
-  async executeDue(){ this.error=''; try{ const r=await apiFetch('/api/one-click/execute-due',{method:'POST'}); this.state=r.state||this.state; this.notice='Execute: '+(r.reason||r.status||'ok'); this.preflightResult=r.preflight||this.preflightResult; }catch(e){ this.error=e.message; }}
+  async executeDue(){ this.error=''; try{ const r=await apiFetch('/api/one-click/execute-due',{method:'POST'}); this.state=r.state||this.state; this.notice='Execute: '+(r.reason||r.status||'ok'); this.preflightResult=r.preflight||this.preflightResult; }catch(e){ this.error=e.message; }},
+  async salesSelect(){ this.error=''; this.busy=true; try{ const r=await apiFetch('/api/sales-release/select?limit=50&min_score=55',{method:'POST'}); this.notice='KI-Selektion: '+JSON.stringify(r.counts||r.status); await this.loadRelease(); }catch(e){ this.error=e.message; } this.busy=false; },
+  async salesValidate(){ this.error=''; this.busy=true; try{ const r=await apiFetch('/api/sales-release/validate',{method:'POST'}); this.notice='Validierung: '+JSON.stringify({approved:(r.approved||[]).length,blocked:(r.blocked||[]).length}); await this.loadRelease(); }catch(e){ this.error=e.message; } this.busy=false; },
+  async salesImport(){ this.error=''; this.busy=true; try{ const r=await apiFetch('/api/sales-release/import-shopware?limit=50',{method:'POST'}); this.notice='Import: '+JSON.stringify(r.counts||r.status); await this.loadRelease(); }catch(e){ this.error=e.message; } this.busy=false; },
+  async salesStart(){ this.error=''; if(!confirm('START PRODUCTIVE SALES wirklich ausführen? Vorhandene Preflight-Blocker verhindern echten Go-Live.')) return; this.busy=true; try{ const r=await apiFetch('/api/sales-release/start',{method:'POST', body:JSON.stringify({approved:true, confirm:true, mode:'manual'})}); this.notice='Sales Start: '+(r.run_status||r.status); await this.loadAll(); await this.loadRelease(); }catch(e){ this.error=e.message; } this.busy=false; }
 }}
 </script>
 {% endblock %}
