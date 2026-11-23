@@ -8615,6 +8615,16 @@ async def sales_state_upsert(sku: str, **fields: Any) -> dict[str, Any]:
                 for k,v in data.items():
                     args.append(v)
                     cast='::jsonb' if k.endswith('_json') else ('::timestamptz' if k.endswith('_at') else '')
+                    if cast == '::timestamptz' and isinstance(v, str) and v:
+                        # asyncpg expects datetime objects for timestamptz params
+                        try:
+                            from datetime import datetime, timezone
+                            vv=v.replace('Z','+00:00')
+                            v=datetime.fromisoformat(vv)
+                            if v.tzinfo is None: v=v.replace(tzinfo=timezone.utc)
+                            args[-1]=v
+                        except Exception:
+                            pass
                     sets.append(f"{k}=${len(args)}{cast}")
                 args.append(sku)
                 await conn.execute(f"UPDATE product_sales_state SET {', '.join(sets)}, updated_at=NOW() WHERE sku=${len(args)}", *args)
