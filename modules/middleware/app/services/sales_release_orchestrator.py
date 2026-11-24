@@ -87,6 +87,36 @@ def _score_product(p: dict[str, Any]) -> tuple[float, list[str]]:
     return min(score,100.0), reasons
 
 
+def _candidate_payload(p: dict[str, Any], state: dict[str, Any]) -> dict[str, Any]:
+    imgs=_j(p.get("gallery_json"), []) or ([] if not p.get("main_image_url") else [p.get("main_image_url")])
+    score = float(state.get("selection_score") or 0)
+    reasons = [r for r in str(state.get("selection_reason") or "").split("; ") if r]
+    return {
+        "sku": str(p.get("sku") or state.get("sku") or ""),
+        "title": p.get("title") or p.get("product_name") or "",
+        "description": p.get("raw_description") or p.get("description") or "",
+        "category": p.get("category") or "",
+        "brand": p.get("brand") or "",
+        "ean": p.get("ean") or p.get("gtin") or p.get("barcode") or "",
+        "stock": float(p.get("stock_quantity") or p.get("stock") or 0),
+        "price": float(p.get("sale_price") or p.get("retail_price") or p.get("price") or 0),
+        "images": imgs[:10],
+        "main_image_url": p.get("main_image_url") or (imgs[0] if imgs else ""),
+        "lifecycle_status": state.get("lifecycle_status"),
+        "selection_score": score,
+        "selection_reasons": reasons,
+        "validation_errors": _j(state.get("validation_errors_json"), []),
+        "shopware_product_id": state.get("shopware_product_id") or "",
+        "shopware_readback": _j(state.get("shopware_readback_json"), {}),
+        "last_error": state.get("last_error") or "",
+        "imported_at": state.get("imported_at"),
+        "synced_at": state.get("synced_at"),
+        "ready_for_sale_at": state.get("ready_for_sale_at"),
+        "online_at": state.get("online_at"),
+        "updated_at": state.get("updated_at"),
+    }
+
+
 async def select_products(*, limit: int = 50, min_score: float = 55.0, actor: str = "system") -> dict[str, Any]:
     products = await list_products(limit=max(limit*3,100))
     selected=[]; rejected=[]
@@ -117,8 +147,11 @@ def _validate_product(p: dict[str, Any]) -> list[str]:
     return errs
 
 
-async def validate_selected(*, actor: str = "system") -> dict[str, Any]:
+async def validate_selected(*, actor: str = "system", skus: list[str] | None = None) -> dict[str, Any]:
+    wanted = {str(s).strip() for s in (skus or []) if str(s).strip()}
     selected = await sales_state_list(limit=5000, status="AI_SELECTED")
+    if wanted:
+        selected = [s for s in selected if str(s.get("sku") or "").strip() in wanted]
     ok=[]; blocked=[]
     for s in selected:
         sku=s.get("sku"); p=await fetch_product(sku)
@@ -132,11 +165,14 @@ async def validate_selected(*, actor: str = "system") -> dict[str, Any]:
             await _set_state(sku,"VALIDATED",actor=actor,message="Validation passed",validation_errors_json=[])
             await _set_state(sku,"IMPORT_APPROVED",actor=actor,message="Import approved")
             ok.append({"sku":sku})
-    return {"status":"ok","approved":ok,"blocked":blocked}
+    return {"status":"ok","approved":ok,"blocked":blocked,"counts":{"approved":len(ok),"blocked":len(blocked),"scanned":len(selected)}}
 
 
-async def import_to_shopware(runtime: Any, *, limit: int = 100, actor: str = "system") -> dict[str, Any]:
+async def import_to_shopware(runtime: Any, *, limit: int = 100, actor: str = "system", skus: list[str] | None = None) -> dict[str, Any]:
     approved = await sales_state_list(limit=5000, status="IMPORT_APPROVED")
+    wanted = {str(s).strip() for s in (skus or []) if str(s).strip()}
+    if wanted:
+        approved = [s for s in approved if str(s.get("sku") or "").strip() in wanted]
     results=[]; errors=[]
     for s in approved[:limit]:
         sku=str(s.get("sku")); p=await fetch_product(sku)
@@ -224,6 +260,38 @@ async def run_preflight(runtime: Any) -> dict[str, Any]:
     ]:
         blockers.append({"code":code,"message":msg})
     return {"status":"blocked" if blockers else ("warning" if warnings else "ready"),"checked_at":now_iso(),"blockers":blockers,"warnings":warnings,"counts":{"products":total,"ready_for_sale":len(ready)}}
+
+
+async def list_ai_candidates(*, limit: int = 100, offset: int = 0, status: str | None = None, search: str | None = None, min_score: float | None = None) -> dict[str, Any]:
+    states = await sales_state_list(limit=5000, status=status)
+    q = str(search or "").strip().lower()
+    out=[]
+    for st in states:
+        sku=str(st.get("sku") or "").strip()
+        if not sku: continue
+        if min_score is not None and float(st.get("selection_score") or 0) < float(min_score):
+            continue
+        p = await fetch_product(sku)
+        if not p:
+            if q and q not in sku.lower():
+                continue
+            out.append(_candidate_payload({"sku": sku, "title": ""}, st))
+            continue
+        hay = " ".join([sku, str(p.get("title") or ""), str(p.get("brand") or ""), str(p.get("category") or ""), str(p.get("ean") or p.get("gtin") or "")]).lower()
+        if q and q not in hay:
+            continue
+        out.append(_candidate_payload(p, st))
+    total=len(out)
+    page=out[max(0,offset):max(0,offset)+max(1,min(limit,500))]
+    return {"status":"ok","total":total,"limit":limit,"offset":offset,"items":page}
+
+
+async def get_ai_candidate(sku: str) -> dict[str, Any] | None:
+    st = await sales_state_get(str(sku or "").strip())
+    if not st:
+        return None
+    p = await fetch_product(str(sku or "").strip()) or {"sku": sku}
+    return _candidate_payload(p, st)
 
 
 async def start_sales(runtime: Any, *, actor: str = "system", mode: str = "manual", approved: bool = False, target_time: str | None = None) -> dict[str, Any]:

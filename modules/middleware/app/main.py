@@ -124,7 +124,9 @@ from services.integration_orchestrator import (
     discover_integrations, run_preflight, plan_launch, load_launch_state,
 )
 from services.sales_release_orchestrator import (
+    get_ai_candidate as mid_get_ai_candidate,
     import_to_shopware as mid_import_to_shopware,
+    list_ai_candidates as mid_list_ai_candidates,
     run_preflight as mid_sales_preflight,
     select_products as mid_select_products,
     start_sales as mid_start_sales,
@@ -213,6 +215,10 @@ RBAC_RULES: list[tuple[str, tuple[str, ...], str]] = [
     ("POST", ("/api/competitor/",), "competitor.manage"),
     ("GET", ("/api/sales/overview", "/api/sales/product-scores"), "products.read"),
     ("GET", ("/api/sales/pricing-recommendations",), "pricing.read"),
+    ("POST", ("/api/sales-release/select", "/api/sales-release/validate", "/api/sales-release/import-shopware", "/api/sales-release/start"), "products.write"),
+    ("GET", ("/api/sales-release/",), "products.read"),
+    ("POST", ("/api/one-click/discover", "/api/one-click/preflight", "/api/one-click/plan-launch", "/api/one-click/execute-due"), "system.configure"),
+    ("GET", ("/api/one-click/",), "system.read"),
     ("GET", ("/api/product-intelligence/",), "products.read"),
     ("POST", ("/api/product-intelligence/catalog/analyze", "/api/product-intelligence/catalog/score", "/api/product-intelligence/catalog/select", "/api/product-intelligence/catalog/preview", "/api/product-intelligence/catalog/exclusions"), "products.read"),
     ("POST", ("/api/product-intelligence/shopify/dry-run",), "exports.execute"),
@@ -2238,17 +2244,26 @@ class SalesStartRequest(BaseModel):
     mode: str = "manual"
     confirm: bool = False
 
+class SalesReleaseValidateRequest(BaseModel):
+    skus: list[str] = Field(default_factory=list)
+
+class SalesReleaseImportRequest(BaseModel):
+    limit: int = Field(default=100, ge=1, le=500)
+    skus: list[str] = Field(default_factory=list)
+
 @app.post("/api/sales-release/select")
 async def sales_release_select(limit: int = Query(default=50, ge=1, le=500), min_score: float = Query(default=55.0, ge=0, le=100), principal: dict[str, Any] = Depends(get_current_principal)):
     return await mid_select_products(limit=limit, min_score=min_score, actor=str(principal.get("username") or principal.get("user_id") or "api"))
 
 @app.post("/api/sales-release/validate")
-async def sales_release_validate(principal: dict[str, Any] = Depends(get_current_principal)):
-    return await mid_validate_selected(actor=str(principal.get("username") or principal.get("user_id") or "api"))
+async def sales_release_validate(payload: SalesReleaseValidateRequest | None = None, principal: dict[str, Any] = Depends(get_current_principal)):
+    return await mid_validate_selected(actor=str(principal.get("username") or principal.get("user_id") or "api"), skus=(payload.skus if payload else None))
 
 @app.post("/api/sales-release/import-shopware")
-async def sales_release_import(limit: int = Query(default=100, ge=1, le=500), principal: dict[str, Any] = Depends(get_current_principal)):
-    return await mid_import_to_shopware(runtime, limit=limit, actor=str(principal.get("username") or principal.get("user_id") or "api"))
+async def sales_release_import(payload: SalesReleaseImportRequest | None = None, limit: int = Query(default=100, ge=1, le=500), principal: dict[str, Any] = Depends(get_current_principal)):
+    effective_limit = payload.limit if payload else limit
+    skus = payload.skus if payload else None
+    return await mid_import_to_shopware(runtime, limit=effective_limit, actor=str(principal.get("username") or principal.get("user_id") or "api"), skus=skus)
 
 @app.post("/api/sales-release/start")
 async def sales_release_start(payload: SalesStartRequest, principal: dict[str, Any] = Depends(get_current_principal)):
@@ -2264,6 +2279,17 @@ async def sales_release_state(limit: int = Query(default=200, ge=1, le=2000)):
         "product_states": await sales_state_list(limit=limit),
         "runs": await sales_go_live_runs_list(limit=20),
     }
+
+@app.get("/api/sales-release/candidates")
+async def sales_release_candidates(limit: int = Query(default=100, ge=1, le=500), offset: int = Query(default=0, ge=0), status: str | None = Query(default=None), search: str | None = Query(default=None), min_score: float | None = Query(default=None, ge=0, le=100)):
+    return await mid_list_ai_candidates(limit=limit, offset=offset, status=status, search=search, min_score=min_score)
+
+@app.get("/api/sales-release/candidates/{sku}")
+async def sales_release_candidate_detail(sku: str):
+    item = await mid_get_ai_candidate(sku)
+    if not item:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    return {"status": "ok", "item": item}
 
 
 # ---------------------------------------------------------------------------
