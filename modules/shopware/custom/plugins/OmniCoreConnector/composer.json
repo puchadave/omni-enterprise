@@ -1,0 +1,29 @@
+{
+  "name": "omnicore/shopware-connector",
+  "description": "OMNI-CORE / Middleware counterpart connector for Shopware 6",
+  "type": "shopware-platform-plugin",
+  "version": "0.1.0",
+  "license": "proprietary",
+  "authors": [{"name": "OMNI Enterprise"}],
+  "require": {
+    "php": ">=8.2",
+    "shopware/core": "~6.7.0",
+    "symfony/http-client": "*"
+  },
+  "extra": {
+    "shopware-plugin-class": "OmniCore\\Connector\\OmniCoreConnector",
+    "label": {
+      "de-DE": "OMNI-CORE Connector",
+      "en-GB": "OMNI-CORE Connector"
+    },
+    "description": {
+      "de-DE": "Signierter, idempotenter Connector für OMNI-Middleware Events und Healthchecks.",
+      "en-GB": "Signed, idempotent connector for OMNI middleware events and health checks."
+    }
+  },
+  "autoload": {
+    "psr-4": {
+      "OmniCore\\Connector\\": "src/"
+    }
+  }
+}

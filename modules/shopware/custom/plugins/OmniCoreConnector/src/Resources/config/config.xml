@@ -1,0 +1,42 @@
+<?xml version="1.0"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/shopware/platform/trunk/src/Core/System/SystemConfig/Schema/config.xsd">
+    <card>
+        <title>OMNI-CORE Connector</title>
+        <title lang="de-DE">OMNI-CORE Connector</title>
+
+        <input-field type="bool">
+            <name>enabled</name>
+            <label>Enabled</label>
+            <label lang="de-DE">Aktiviert</label>
+            <defaultValue>false</defaultValue>
+        </input-field>
+
+        <input-field type="text">
+            <name>middlewareBaseUrl</name>
+            <label>Middleware Base URL</label>
+            <label lang="de-DE">Middleware Basis-URL</label>
+            <placeholder>https://middleware.example/api/webhooks/shopware</placeholder>
+        </input-field>
+
+        <input-field type="password">
+            <name>sharedSecret</name>
+            <label>HMAC Shared Secret</label>
+            <label lang="de-DE">HMAC Shared Secret</label>
+        </input-field>
+
+        <input-field type="text">
+            <name>sourceId</name>
+            <label>Source ID</label>
+            <label lang="de-DE">Quell-ID</label>
+            <defaultValue>shopware-pve04</defaultValue>
+        </input-field>
+
+        <input-field type="int">
+            <name>timeoutSeconds</name>
+            <label>Timeout (seconds)</label>
+            <label lang="de-DE">Timeout (Sekunden)</label>
+            <defaultValue>10</defaultValue>
+        </input-field>
+    </card>
+</config>
