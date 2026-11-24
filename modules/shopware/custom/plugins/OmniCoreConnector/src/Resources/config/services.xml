@@ -20,6 +20,24 @@
             <argument type="service" id="monolog.logger"/>
         </service>
 
+        <service id="OmniCore\Connector\Service\MiddlewareApiClient">
+            <argument type="service" id="OmniCore\Connector\Service\OmniConfigService"/>
+            <argument type="service" id="Symfony\Contracts\HttpClient\HttpClientInterface"/>
+            <argument type="service" id="monolog.logger"/>
+        </service>
+
+        <service id="OmniCore\Connector\Service\AiImportJobService">
+            <argument type="service" id="Doctrine\DBAL\Connection"/>
+            <argument type="service" id="OmniCore\Connector\Service\MiddlewareApiClient"/>
+            <argument type="service" id="messenger.bus.shopware"/>
+        </service>
+
+        <service id="OmniCore\Connector\MessageHandler\ProcessAiImportJobHandler">
+            <argument type="service" id="OmniCore\Connector\Service\AiImportJobService"/>
+            <argument type="service" id="monolog.logger"/>
+            <tag name="messenger.message_handler"/>
+        </service>
+
         <service id="OmniCore\Connector\Subscriber\OrderEventSubscriber">
             <argument type="service" id="OmniCore\Connector\Service\MiddlewareWebhookClient"/>
             <tag name="kernel.event_subscriber"/>
@@ -34,6 +52,15 @@
             <argument type="service" id="OmniCore\Connector\Service\OmniConfigService"/>
             <argument type="service" id="OmniCore\Connector\Service\IdempotencyService"/>
             <argument type="service" id="Doctrine\DBAL\Connection"/>
+            <call method="setContainer">
+                <argument type="service" id="service_container"/>
+            </call>
+            <tag name="controller.service_arguments"/>
+        </service>
+
+        <service id="OmniCore\Connector\Controller\Admin\AiImportController" public="true">
+            <argument type="service" id="OmniCore\Connector\Service\MiddlewareApiClient"/>
+            <argument type="service" id="OmniCore\Connector\Service\AiImportJobService"/>
             <call method="setContainer">
                 <argument type="service" id="service_container"/>
             </call>

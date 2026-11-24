@@ -1,0 +1,93 @@
+{% block omnicore_ai_import_list %}
+<sw-page class="omnicore-ai-import-list">
+    <template #smart-bar-header>
+        <h2>{{ $tc('omnicore-ai-import.general.mainMenuItemGeneral') }}</h2>
+    </template>
+
+    <template #smart-bar-actions>
+        <sw-button :disabled="isLoading" @click="loadCandidates">
+            {{ $tc('omnicore-ai-import.actions.refresh') }}
+        </sw-button>
+        <sw-button :disabled="isLoading || !canUpdate" @click="refreshSelection">
+            {{ $tc('omnicore-ai-import.actions.runSelection') }}
+        </sw-button>
+        <sw-button variant="primary" :disabled="isImporting || !canImport" @click="importSelected">
+            {{ $tc('omnicore-ai-import.actions.importSelected') }}
+        </sw-button>
+        <sw-button variant="ghost" :disabled="isImporting || !canImport" @click="importAllMatching">
+            {{ $tc('omnicore-ai-import.actions.importAllMatching') }}
+        </sw-button>
+    </template>
+
+    <template #content>
+        <sw-card-view>
+            <sw-card :title="$tc('omnicore-ai-import.filters.title')">
+                <sw-container columns="1fr 1fr 1fr 120px" gap="12px">
+                    <sw-text-field v-model:value="filter.search" :label="$tc('omnicore-ai-import.filters.search')" @update:value="loadCandidates" />
+                    <sw-select-field v-model:value="filter.status" :label="$tc('omnicore-ai-import.filters.status')" @update:value="loadCandidates">
+                        <option value="">{{ $tc('omnicore-ai-import.filters.allStatuses') }}</option>
+                        <option value="AI_SELECTED">AI_SELECTED</option>
+                        <option value="VALIDATED">VALIDATED</option>
+                        <option value="IMPORT_APPROVED">IMPORT_APPROVED</option>
+                        <option value="IMPORTED">IMPORTED</option>
+                        <option value="READY_FOR_SALE">READY_FOR_SALE</option>
+                        <option value="IMPORT_BLOCKED">IMPORT_BLOCKED</option>
+                    </sw-select-field>
+                    <sw-number-field v-model:value="filter.minScore" :label="$tc('omnicore-ai-import.filters.minScore')" numberType="float" />
+                    <sw-number-field v-model:value="filter.limit" :label="$tc('omnicore-ai-import.filters.limit')" numberType="int" />
+                </sw-container>
+            </sw-card>
+
+            <sw-card v-if="activeJob" :title="$tc('omnicore-ai-import.job.title')">
+                <sw-alert :variant="activeJob.status === 'failed' ? 'error' : (activeJob.status === 'completed_with_errors' ? 'warning' : 'info')">
+                    <div><strong>{{ $tc('omnicore-ai-import.job.status') }}:</strong> {{ activeJob.status }}</div>
+                    <div>{{ activeJob.processed_items }} / {{ activeJob.total_items }} processed — {{ activeJob.success_items }} ok, {{ activeJob.failed_items }} failed, {{ activeJob.skipped_items }} skipped</div>
+                    <div v-if="activeJob.error_summary">{{ activeJob.error_summary }}</div>
+                </sw-alert>
+                <sw-button v-if="activeJob.failed_items > 0 && canImport" :disabled="isImporting" @click="retryFailed">
+                    {{ $tc('omnicore-ai-import.actions.retryFailed') }}
+                </sw-button>
+
+                <sw-data-grid
+                    v-if="jobItems.length"
+                    :dataSource="jobItems"
+                    :columns="[{property:'sku',label:'SKU'},{property:'status',label:'Status'},{property:'middleware_status',label:'Middleware'},{property:'shopware_product_id',label:'Shopware ID'},{property:'error_message',label:'Error'}]"
+                    :showSelection="false"
+                    :showActions="false"
+                />
+            </sw-card>
+
+            <sw-card :title="$tc('omnicore-ai-import.candidates.title')">
+                <sw-data-grid
+                    :isLoading="isLoading"
+                    :dataSource="candidates"
+                    :columns="columns"
+                    :showSelection="true"
+                    :showActions="true"
+                    identifier="sku"
+                    @selection-change="onSelectionChange"
+                >
+                    <template #actions="{ item }">
+                        <sw-context-menu-item @click="openDetail(item)">
+                            {{ $tc('omnicore-ai-import.actions.details') }}
+                        </sw-context-menu-item>
+                    </template>
+                </sw-data-grid>
+                <div class="omnicore-ai-import-total">{{ $tc('omnicore-ai-import.candidates.total') }}: {{ total }}</div>
+            </sw-card>
+
+            <sw-modal v-if="detailItem" :title="detailItem.sku" @modal-close="closeDetail">
+                <sw-description-list>
+                    <dt>{{ $tc('omnicore-ai-import.columns.title') }}</dt><dd>{{ detailItem.title }}</dd>
+                    <dt>{{ $tc('omnicore-ai-import.columns.score') }}</dt><dd>{{ detailItem.selection_score }}</dd>
+                    <dt>{{ $tc('omnicore-ai-import.columns.status') }}</dt><dd>{{ detailItem.lifecycle_status }}</dd>
+                    <dt>Shopware ID</dt><dd>{{ detailItem.shopware_product_id || '-' }}</dd>
+                    <dt>Reasons</dt><dd><pre>{{ (detailItem.selection_reasons || []).join('\n') }}</pre></dd>
+                    <dt>Validation errors</dt><dd><pre>{{ JSON.stringify(detailItem.validation_errors || [], null, 2) }}</pre></dd>
+                    <dt>Last error</dt><dd><pre>{{ detailItem.last_error || '-' }}</pre></dd>
+                </sw-description-list>
+            </sw-modal>
+        </sw-card-view>
+    </template>
+</sw-page>
+{% endblock %}

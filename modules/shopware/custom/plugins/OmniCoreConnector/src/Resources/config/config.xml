@@ -14,9 +14,22 @@
 
         <input-field type="text">
             <name>middlewareBaseUrl</name>
-            <label>Middleware Base URL</label>
-            <label lang="de-DE">Middleware Basis-URL</label>
+            <label>Middleware Webhook Base URL</label>
+            <label lang="de-DE">Middleware Webhook Basis-URL</label>
             <placeholder>https://middleware.example/api/webhooks/shopware</placeholder>
+        </input-field>
+
+        <input-field type="text">
+            <name>middlewareApiBaseUrl</name>
+            <label>Middleware API Base URL</label>
+            <label lang="de-DE">Middleware API Basis-URL</label>
+            <placeholder>https://middleware.example/api</placeholder>
+        </input-field>
+
+        <input-field type="password">
+            <name>middlewareApiKey</name>
+            <label>Middleware Internal API Key</label>
+            <label lang="de-DE">Middleware interner API-Key</label>
         </input-field>
 
         <input-field type="password">

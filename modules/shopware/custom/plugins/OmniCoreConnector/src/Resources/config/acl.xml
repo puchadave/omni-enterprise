@@ -1,0 +1,24 @@
+<?xml version="1.0" ?>
+<acl xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+     xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/shopware/platform/trunk/src/Core/Framework/Api/Acl/Schema/acl-1.0.xsd">
+    <roles>
+        <role name="omnicore_connector.viewer">
+            <privilege>omnicore_connector:read</privilege>
+        </role>
+        <role name="omnicore_connector.editor">
+            <privilege>omnicore_connector:read</privilege>
+            <privilege>omnicore_connector:update</privilege>
+        </role>
+        <role name="omnicore_connector.import">
+            <privilege>omnicore_connector:read</privilege>
+            <privilege>omnicore_connector:update</privilege>
+            <privilege>omnicore_connector:import</privilege>
+        </role>
+        <role name="omnicore_connector.admin">
+            <privilege>omnicore_connector:read</privilege>
+            <privilege>omnicore_connector:update</privilege>
+            <privilege>omnicore_connector:import</privilege>
+            <privilege>omnicore_connector:delete</privilege>
+        </role>
+    </roles>
+</acl>

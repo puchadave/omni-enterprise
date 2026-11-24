@@ -1,0 +1,52 @@
+{
+  "omnicore-ai-import": {
+    "general": {
+      "mainMenuItemGeneral": "OMNI AI Import",
+      "descriptionTextModule": "Review AI-selected products and import them in a controlled way."
+    },
+    "filters": {
+      "title": "Filters",
+      "search": "Search (SKU/title)",
+      "status": "Status",
+      "allStatuses": "All statuses",
+      "minScore": "Min AI score",
+      "limit": "Limit"
+    },
+    "candidates": {
+      "title": "AI candidates",
+      "total": "Total"
+    },
+    "columns": {
+      "title": "Title",
+      "score": "Score",
+      "status": "Status",
+      "shopwareId": "Shopware ID",
+      "error": "Error"
+    },
+    "actions": {
+      "refresh": "Reload",
+      "runSelection": "Refresh AI selection",
+      "importSelected": "Import selected",
+      "importAllMatching": "Import all matching",
+      "retryFailed": "Retry failed",
+      "details": "Details"
+    },
+    "job": {
+      "title": "Import job",
+      "status": "Status"
+    },
+    "messages": {
+      "loadFailed": "Could not load candidates.",
+      "refreshFailed": "Could not refresh AI selection.",
+      "refreshSuccess": "AI selection refreshed.",
+      "noSelection": "Please select at least one product.",
+      "confirmFilterImport": "Import all matching candidates for the current filter? This action runs as a server-side job.",
+      "jobCreated": "Import job created.",
+      "jobFailed": "Could not create import job.",
+      "pollFailed": "Could not update job status.",
+      "retryCreated": "Retry job created.",
+      "retryFailed": "Retry failed.",
+      "detailFailed": "Could not fully load details."
+    }
+  }
+}

@@ -4,38 +4,58 @@ namespace OmniCore\Connector\Service;
 
 use Shopware\Core\System\SystemConfig\SystemConfigService;
 
-final class OmniConfigService
+class OmniConfigService
 {
-    public const PREFIX = 'OmniCoreConnector.config.';
+    private const PREFIX = 'OmniCoreConnector.config.';
 
-    public function __construct(private readonly SystemConfigService $systemConfigService)
+    public function __construct(private readonly SystemConfigService $systemConfig)
     {
     }
 
-    public function isEnabled(?string $salesChannelId = null): bool
+    public function getString(string $key, string $default = ''): string
     {
-        return (bool) $this->systemConfigService->get(self::PREFIX . 'enabled', $salesChannelId);
+        $value = $this->systemConfig->get(self::PREFIX . $key);
+        return is_string($value) ? trim($value) : $default;
     }
 
-    public function getMiddlewareBaseUrl(?string $salesChannelId = null): string
+    public function isEnabled(): bool
     {
-        return trim((string) $this->systemConfigService->get(self::PREFIX . 'middlewareBaseUrl', $salesChannelId));
+        return (bool) $this->systemConfig->get(self::PREFIX . 'enabled');
     }
 
-    public function getSharedSecret(?string $salesChannelId = null): string
+    public function middlewareBaseUrl(): string
     {
-        return (string) $this->systemConfigService->get(self::PREFIX . 'sharedSecret', $salesChannelId);
+        return rtrim($this->getString('middlewareBaseUrl'), '/');
     }
 
-    public function getSourceId(?string $salesChannelId = null): string
+    public function middlewareApiBaseUrl(): string
     {
-        $value = trim((string) $this->systemConfigService->get(self::PREFIX . 'sourceId', $salesChannelId));
-        return $value !== '' ? $value : 'shopware';
+        return rtrim($this->getString('middlewareApiBaseUrl'), '/');
     }
 
-    public function getTimeoutSeconds(?string $salesChannelId = null): int
+    public function middlewareApiKey(): string
     {
-        $v = (int) $this->systemConfigService->get(self::PREFIX . 'timeoutSeconds', $salesChannelId);
-        return $v > 0 ? $v : 10;
+        return $this->getString('middlewareApiKey');
+    }
+
+    public function sharedSecret(): string
+    {
+        return $this->getString('sharedSecret');
+    }
+
+    public function sourceId(): string
+    {
+        $source = $this->getString('sourceId', 'shopware-connector');
+        return $source !== '' ? $source : 'shopware-connector';
+    }
+
+    public function timeoutSeconds(): int
+    {
+        $value = $this->systemConfig->get(self::PREFIX . 'timeoutSeconds');
+        if (!is_numeric($value)) {
+            return 10;
+        }
+        $int = (int) $value;
+        return $int > 0 ? $int : 10;
     }
 }
