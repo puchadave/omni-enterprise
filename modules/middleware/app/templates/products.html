@@ -295,7 +295,7 @@ function productsPage(){
       }catch(e){ toast(e.message,'error'); }
       this.saving=false;
     },
-    async remove(p){if(!confirm(`Produkt „${p.title||p.sku}“ wirklich löschen?`)) return; try{await apiFetch('/api/products/'+encodeURIComponent(p.sku),{method:'DELETE'}); toast('Produkt gelöscht.','success'); await this.load(true);}catch(e){toast(e.message,'error')}}
+    async remove(p){const ok=await uiConfirm({title:'Produkt löschen', body:`Produkt „${p.title||p.sku}“ wirklich löschen?`, details:'Diese Aktion entfernt das Produkt aus der Middleware-Sicht/API. Prüfen Sie vorher Abhängigkeiten und Exporte.', requireCheck:true, checkLabel:'Ich verstehe, dass das Produkt gelöscht wird.', danger:true, confirmLabel:'Produkt löschen'}); if(!ok) return; try{await apiFetch('/api/products/'+encodeURIComponent(p.sku),{method:'DELETE'}); toast('Produkt gelöscht.','success'); await this.load(true);}catch(e){toast(e.message,'error')}}
   }
 }
 </script>

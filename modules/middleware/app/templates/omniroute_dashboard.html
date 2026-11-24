@@ -182,7 +182,6 @@
             try {
                 await apiFetch('/api/omniroute/providers', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         name: document.getElementById('pr-name').value,
                         provider_type: document.getElementById('pr-type').value,
@@ -194,10 +193,11 @@
                 });
                 hideProviderForm();
                 document.getElementById('provider-form-el').reset();
+                toast('Provider gespeichert.', 'success');
                 loadProviders();
                 loadStats();
             } catch (err) {
-                alert('Fehler: ' + err.message);
+                toast('Fehler: ' + uiFormatError(err), 'error');
             }
         });
 
@@ -207,7 +207,6 @@
             try {
                 await apiFetch('/api/omniroute/models', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         provider_id: document.getElementById('mr-provider').value,
                         model_id: document.getElementById('mr-model-id').value,
@@ -219,10 +218,11 @@
                 });
                 hideModelForm();
                 document.getElementById('model-form-el').reset();
+                toast('Modell gespeichert.', 'success');
                 loadModels();
                 loadStats();
             } catch (err) {
-                alert('Fehler: ' + err.message);
+                toast('Fehler: ' + uiFormatError(err), 'error');
             }
         });
 

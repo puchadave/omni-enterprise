@@ -23,7 +23,7 @@ document.getElementById('business').innerHTML='<div class="grid3"><div class="no
 document.getElementById('security').innerHTML=row('Security status',s.security_status||'unknown',s.security_status==='healthy'?'good':'warn')+row('Errors',fmt(s.error_count),'')+row('Warnings',fmt(s.warning_count),'')+row('Logs inspected',fmt(s.total_logs_24h),'');
 var logs=e.recent_activity&&e.recent_activity.recent_logs||[];document.getElementById('activity').innerHTML=logs.length?'<table class="table"><thead><tr><th>Time</th><th>Level</th><th>Event</th><th>Message</th></tr></thead><tbody>'+logs.map(function(l){return '<tr><td class="mono">'+esc(l.created_at||l.timestamp||'')+'</td><td>'+esc(l.level||'')+'</td><td class="mono">'+esc(l.event||'')+'</td><td>'+esc(l.message||'')+'</td></tr>'}).join('')+'</tbody></table>':'<div class="notice">No recent activity.</div>';
 }catch(e){document.getElementById('updated').textContent='Telemetry error: '+e.message}}
-async function runAction(url,label){try{var r=await apiFetch(url,{method:'POST'});alert(label+': '+(r.status||'ok'));await refresh()}catch(e){alert(label+' failed: '+e.message)}}
+async function runAction(url,label){try{var r=await apiFetch(url,{method:'POST'}); if(window.toast) toast(label+': '+(r.status||'ok'),'success'); else console.log(label,r); await refresh()}catch(e){ if(window.toast) toast(label+' fehlgeschlagen: '+(e.message||e),'error'); else console.error(e); }}
 async function logout(){try{await apiFetch('/api/auth/logout',{method:'POST'});}finally{location.href='/login'}}
-refresh();setInterval(refresh,15000);
+refresh();var _ccPoll=setInterval(function(){ if(!document.hidden) refresh(); },15000);window.addEventListener('beforeunload',function(){ clearInterval(_ccPoll); });
 </script></body></html>

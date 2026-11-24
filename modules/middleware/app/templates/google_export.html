@@ -98,14 +98,13 @@
             const shopUrl = document.getElementById('shop-url').value;
 
             if (!accountId || !sku) {
-                alert('Bitte Konto und SKU auswählen');
+                toast('Bitte Konto und SKU auswählen', 'warning');
                 return;
             }
 
             try {
                 const data = await apiFetch('/api/google/export', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ account_id: accountId, product_sku: sku, ai_title: aiTitle || null, shop_url: shopUrl || null })
                 });
                 const resultDiv = document.getElementById('export-result');
@@ -113,9 +112,10 @@
                 resultDiv.classList.remove('hidden');
                 resultDiv.textContent = `Export gestartet: ${data.export_id}`;
                 document.getElementById('product-sku').value = '';
+                toast('Export gestartet.', 'success');
                 loadRecent();
             } catch (err) {
-                alert('Export fehlgeschlagen: ' + err.message);
+                toast('Export fehlgeschlagen: ' + uiFormatError(err), 'error');
             }
         });
 

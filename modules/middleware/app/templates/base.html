@@ -44,6 +44,17 @@
     .banner-error{background:rgba(127,29,29,.25);border-color:#7f1d1d;color:#fecaca}
     .banner-warn{background:rgba(120,53,15,.2);border-color:#92400e;color:#fde68a}
     .banner-success{background:rgba(6,78,59,.25);border-color:#065f46;color:#a7f3d0}
+    .banner-info{background:rgba(30,41,59,.55);border-color:#334155;color:#cbd5e1}
+    .kpi{background:#0f172a;border:1px solid #1e293b;border-radius:.75rem;padding:1rem}
+    .kpi-label{font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;color:#94a3b8}
+    .kpi-value{font-size:1.6rem;font-weight:700;margin-top:.2rem;line-height:1.2}
+    .kpi-meta{font-size:.75rem;color:#64748b;margin-top:.25rem}
+    .section-title{font-size:1rem;font-weight:600;color:#e2e8f0}
+    .section-sub{font-size:.8rem;color:#94a3b8;margin-top:.15rem}
+    .status-dot{width:.5rem;height:.5rem;border-radius:999px;display:inline-block}
+    .modal-backdrop{position:fixed;inset:0;background:rgba(2,6,23,.72);backdrop-filter:blur(2px);z-index:70;display:flex;align-items:center;justify-content:center;padding:1rem}
+    .modal-panel{width:100%;max-width:36rem;background:#0f172a;border:1px solid #334155;border-radius:.85rem;box-shadow:0 25px 60px rgba(0,0,0,.45)}
+    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
   </style>
 </head>
 <body class="h-full bg-slate-950 text-slate-100" x-data="{open:false, path: window.location.pathname}" @keydown.escape.window="open=false">
@@ -116,10 +127,22 @@
         </template>
       </div>
 
-      <div id="global-toast" class="fixed top-4 right-4 z-[60] space-y-2 pointer-events-none"></div>
-      <main class="flex-1 p-4 md:p-6 lg:p-8">
-        {% block content %}{% endblock %}
-      </main>
+  <div id="global-toast" class="fixed top-4 right-4 z-[60] space-y-2 pointer-events-none"></div>
+  <div id="global-confirm" class="hidden modal-backdrop" aria-hidden="true">
+    <div class="modal-panel p-5">
+      <div class="text-lg font-semibold" id="global-confirm-title">Bestätigung erforderlich</div>
+      <div class="text-sm text-slate-300 mt-2 whitespace-pre-wrap" id="global-confirm-body"></div>
+      <div id="global-confirm-details" class="hidden mt-3 text-xs text-slate-400 bg-slate-950 border border-slate-800 rounded p-2 mono whitespace-pre-wrap"></div>
+      <label id="global-confirm-check-wrap" class="hidden mt-3 flex items-start gap-2 text-sm text-slate-300"><input id="global-confirm-check" type="checkbox" class="mt-1"><span id="global-confirm-check-label"></span></label>
+      <div class="mt-4 flex justify-end gap-2">
+        <button type="button" id="global-confirm-cancel" class="btn btn-secondary">Abbrechen</button>
+        <button type="button" id="global-confirm-ok" class="btn btn-danger">Bestätigen</button>
+      </div>
+    </div>
+  </div>
+  <main class="flex-1 p-4 md:p-6 lg:p-8">
+    {% block content %}{% endblock %}
+  </main>
     </div>
   </div>
 
@@ -162,6 +185,32 @@
       d.className='pointer-events-auto border '+cls+' rounded-lg px-3 py-2.5 text-sm shadow-xl max-w-sm';
       d.textContent=String(msg); c.appendChild(d);
       setTimeout(()=>d.remove(), opts.duration||4500);
+    }
+    function uiConfirm(opts={}){
+      const modal=document.getElementById('global-confirm'); if(!modal) return Promise.resolve(false);
+      const title=document.getElementById('global-confirm-title');
+      const body=document.getElementById('global-confirm-body');
+      const details=document.getElementById('global-confirm-details');
+      const checkWrap=document.getElementById('global-confirm-check-wrap');
+      const check=document.getElementById('global-confirm-check');
+      const checkLabel=document.getElementById('global-confirm-check-label');
+      const ok=document.getElementById('global-confirm-ok');
+      const cancel=document.getElementById('global-confirm-cancel');
+      title.textContent=opts.title||'Bestätigung erforderlich';
+      body.textContent=opts.body||'Möchten Sie fortfahren?';
+      details.textContent=opts.details||''; details.classList.toggle('hidden', !opts.details);
+      check.checked=false; checkWrap.classList.toggle('hidden', !opts.requireCheck);
+      checkLabel.textContent=opts.checkLabel||'Ich verstehe die Auswirkungen.';
+      ok.textContent=opts.confirmLabel||'Bestätigen'; ok.className='btn '+(opts.danger?'btn-danger':'btn-primary');
+      modal.classList.remove('hidden'); modal.setAttribute('aria-hidden','false');
+      const update=()=>{ ok.disabled = !!opts.requireCheck && !check.checked; };
+      check.onchange=update; update();
+      return new Promise(resolve=>{
+        const cleanup=(v)=>{ modal.classList.add('hidden'); modal.setAttribute('aria-hidden','true'); ok.onclick=null; cancel.onclick=null; modal.onclick=null; document.removeEventListener('keydown', esc); resolve(v); };
+        const esc=(e)=>{ if(e.key==='Escape') cleanup(false); };
+        ok.onclick=()=>cleanup(true); cancel.onclick=()=>cleanup(false); modal.onclick=(e)=>{ if(e.target===modal) cleanup(false); };
+        document.addEventListener('keydown', esc);
+      });
     }
 
     function fmt(v){if(v==null||v==='') return '—'; if(typeof v==='object'){try{return JSON.stringify(v);}catch(_){return String(v)}} return String(v);}

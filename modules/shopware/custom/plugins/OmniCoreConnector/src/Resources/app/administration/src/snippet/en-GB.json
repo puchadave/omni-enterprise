@@ -2,7 +2,12 @@
   "omnicore-ai-import": {
     "general": {
       "mainMenuItemGeneral": "OMNI AI Import",
-      "descriptionTextModule": "Review AI-selected products and import them in a controlled way."
+      "descriptionTextModule": "Review, approve, and import AI-selected products in a controlled way."
+    },
+    "overview": {
+      "title": "Overview",
+      "selected": "Selected",
+      "lastRefresh": "Last refreshed"
     },
     "filters": {
       "title": "Filters",
@@ -29,24 +34,63 @@
       "importSelected": "Import selected",
       "importAllMatching": "Import all matching",
       "retryFailed": "Retry failed",
-      "details": "Details"
+      "details": "Details",
+      "cancel": "Cancel"
     },
     "job": {
       "title": "Import job",
-      "status": "Status"
+      "status": "Status",
+      "processed": "processed",
+      "ok": "ok",
+      "failed": "failed",
+      "skipped": "skipped",
+      "progress": "Progress"
+    },
+    "status": {
+      "idle": "No active job",
+      "ai_selected": "AI selected",
+      "validated": "Validated",
+      "import_approved": "Import approved",
+      "imported": "Imported",
+      "ready_for_sale": "Ready for sale",
+      "import_blocked": "Import blocked",
+      "queued": "Queued",
+      "running": "Running",
+      "completed": "Completed",
+      "completed_with_errors": "Completed with errors",
+      "failed": "Failed",
+      "skipped": "Skipped",
+      "unknown": "Unknown"
+    },
+    "detail": {
+      "reasons": "Selection reasons",
+      "validationErrors": "Validation errors"
+    },
+    "empty": {
+      "title": "No candidates found",
+      "subline": "Adjust filters or minimum score, or refresh the AI selection."
+    },
+    "confirm": {
+      "filterImportTitle": "Import all matching candidates?",
+      "retryTitle": "Retry failed items?",
+      "refreshTitle": "Refresh AI selection?"
     },
     "messages": {
       "loadFailed": "Could not load candidates.",
       "refreshFailed": "Could not refresh AI selection.",
       "refreshSuccess": "AI selection refreshed.",
       "noSelection": "Please select at least one product.",
-      "confirmFilterImport": "Import all matching candidates for the current filter? This action runs as a server-side job.",
+      "confirmFilterImport": "All matching candidates for the current filter will be imported as a server-side job. Run only after checking filters and approvals.",
+      "confirmRetryFailed": "Only failed/skipped items from this job will be queued for retry.",
+      "confirmRefreshSelection": "AI selection will be recalculated. Existing approvals/statuses may change.",
       "jobCreated": "Import job created.",
       "jobFailed": "Could not create import job.",
       "pollFailed": "Could not update job status.",
       "retryCreated": "Retry job created.",
       "retryFailed": "Retry failed.",
-      "detailFailed": "Could not fully load details."
+      "detailFailed": "Could not fully load details.",
+      "noPermissionTitle": "No permission",
+      "noPermission": "You do not have permission to read OMNI AI Import data."
     }
   }
 }

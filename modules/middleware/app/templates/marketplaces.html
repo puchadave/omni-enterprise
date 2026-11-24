@@ -1,36 +1,41 @@
 {% extends "base.html" %}
 {% block title %}Marktplätze & Kanäle | OMNI-CORE{% endblock %}
 {% block content %}
-<div x-data="page()" x-init="load()" class="space-y-4 max-w-7xl mx-auto">
+<div x-data="page()" x-init="load()" class="space-y-4 max-w-[1600px] mx-auto">
   <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
     <div>
       <h1 class="text-2xl md:text-3xl font-bold">Marktplätze & Kanäle</h1>
-      <p class="text-slate-400">Übersicht Ihrer Vertriebskanäle (z. B. Shopware, Amazon, eBay) und deren Bereitschaft. Nur konfigurierte Kanäle können synchronisieren.</p>
+      <p class="text-slate-400">Kanalbereitschaft und Exportziele. Nur konfigurierte, autorisierte Kanäle werden als betriebsbereit angezeigt.</p>
+      <div class="text-xs text-slate-500 mt-1" x-text="lastUpdated ? 'Zuletzt aktualisiert: '+fmtDate(lastUpdated) : ''"></div>
     </div>
-    <div class="flex gap-2"><a href="/ui/settings" class="btn btn-secondary">Kanäle einrichten</a><button @click="load()" class="btn btn-primary">Aktualisieren</button></div>
+    <div class="flex gap-2"><a href="/ui/settings" class="btn btn-secondary">Kanäle einrichten</a><button @click="load()" class="btn btn-primary" :disabled="loading">Aktualisieren</button></div>
   </div>
 
   <template x-if="error"><div class="banner banner-error"><div class="font-medium">Daten konnten nicht geladen werden</div><div class="text-sm mt-1" x-text="error"></div><button class="btn btn-secondary !py-1.5 mt-2" @click="load()">Erneut versuchen</button></div></template>
 
+  <div class="grid md:grid-cols-3 gap-3">
+    <div class="kpi"><div class="kpi-label">Kanäle</div><div class="kpi-value" x-text="Object.keys(integrations).length"></div><div class="kpi-meta">Integrationsstatus</div></div>
+    <div class="kpi"><div class="kpi-label">Betriebsbereit</div><div class="kpi-value" x-text="readyCount()"></div><div class="kpi-meta">Verbunden/Konfiguriert</div></div>
+    <div class="kpi"><div class="kpi-label">Export-Kanäle</div><div class="kpi-value" x-text="channels.length"></div><div class="kpi-meta">Aus Export-API</div></div>
+  </div>
+
   <div class="grid md:grid-cols-2 gap-4">
     <div class="card p-4">
-      <h2 class="font-semibold mb-1">Kanal-Status</h2>
-      <p class="text-xs text-slate-400 mb-3">Verbindungs- und Konfigurationsstatus je Kanal.</p>
+      <h2 class="section-title">Kanal-Status</h2><p class="section-sub mb-3">Verbindungs- und Konfigurationsstatus je Kanal.</p>
       <div x-show="loading" class="space-y-2"><div class="skeleton h-8 w-full"></div><div class="skeleton h-8 w-5/6"></div></div>
       <div class="space-y-2" x-show="!loading && !error">
         <template x-for="(val,name) in integrations" :key="name">
           <div class="flex items-center justify-between border-b border-slate-800 pb-2 last:border-0">
-            <div><div class="font-medium capitalize" x-text="name"></div><div class="text-xs text-slate-500" x-text="statusHint(val)"></div></div>
+            <div><div class="font-medium capitalize" x-text="label(name)"></div><div class="text-xs text-slate-500" x-text="statusHint(val)"></div></div>
             <span class="badge" :class="uiBadgeClass(norm(val))" x-text="uiStatusLabel(norm(val))"></span>
           </div>
         </template>
-        <div x-show="Object.keys(integrations||{}).length===0" class="empty-state !py-6"><div class="icon">🔌</div><div class="title">Keine Kanäle eingerichtet</div><div class="text-sm">Hinterlegen Sie Zugangsdaten unter „Einstellungen“, um Marktplätze und Kanäle zu verbinden. Ohne Konfiguration werden keine Daten abgerufen.</div><a href="/ui/settings" class="btn btn-primary mt-3">Jetzt einrichten</a></div>
+        <div x-show="Object.keys(integrations||{}).length===0" class="empty-state !py-6"><div class="title">Keine Kanäle eingerichtet</div><div class="text-sm">Hinterlegen Sie Zugangsdaten unter Einstellungen.</div><a href="/ui/settings" class="btn btn-primary mt-3">Jetzt einrichten</a></div>
       </div>
     </div>
 
     <div class="card p-4">
-      <h2 class="font-semibold mb-1">Export-Kanäle</h2>
-      <p class="text-xs text-slate-400 mb-3">Verfügbare Kanäle für den Produkt-/Datenexport.</p>
+      <h2 class="section-title">Export-Kanäle</h2><p class="section-sub mb-3">Verfügbare Ziele für Produkt-/Datenexport.</p>
       <div x-show="loading" class="space-y-2"><div class="skeleton h-8 w-full"></div><div class="skeleton h-8 w-5/6"></div></div>
       <div x-show="!loading && !error">
         <template x-if="channels.length>0">
@@ -43,24 +48,24 @@
             </template>
           </div>
         </template>
-        <template x-if="channels.length===0">
-          <div class="empty-state !py-6"><div class="icon">📤</div><div class="title">Keine Export-Kanäle verfügbar</div><div class="text-sm">Sobald Kanäle konfiguriert und freigeschaltet sind, erscheinen sie hier für den Export.</div></div>
-        </template>
+        <template x-if="channels.length===0"><div class="empty-state !py-6"><div class="title">Keine Export-Kanäle verfügbar</div><div class="text-sm">Sobald Kanäle konfiguriert/freigeschaltet sind, erscheinen sie hier.</div></div></template>
         <details class="mt-3 text-xs text-slate-500"><summary class="cursor-pointer hover:text-slate-300">Technische Details</summary><pre class="mt-2 bg-slate-950 border border-slate-800 rounded p-2 overflow-auto max-h-48" x-text="JSON.stringify({integrations, channels},null,2)"></pre></details>
       </div>
     </div>
   </div>
 
-  <div class="banner banner-warn text-sm"><div class="font-medium">Wichtig</div><div class="mt-1">Synchronisationen und Exporte greifen nur auf tatsächlich verbundene, autorisierte Systeme zu. Es werden keine Verbindungen oder Daten vorgetäuscht. Zugangsdaten pflegen Sie sicher unter <a href="/ui/settings" class="underline">Einstellungen</a>.</div></div>
+  <div class="banner banner-info text-sm"><div class="font-medium">Hinweis</div><div class="mt-1">Synchronisationen/Exporte nutzen nur tatsächlich verbundene, autorisierte Systeme. Zugangsdaten sicher unter <a href="/ui/settings" class="underline">Einstellungen</a> pflegen.</div></div>
 </div>
 {% endblock %}
 {% block scripts %}
 <script>
 function page(){return{
-  loading:true,error:'',integrations:{},channels:[],
+  loading:true,error:'',integrations:{},channels:[],lastUpdated:null,
   norm(v){return typeof v==='string'?v:(v&&(v.status||v.state))||'not_configured';},
-  statusHint(v){const s=this.norm(v); if(['ok','connected','healthy','configured','active'].includes(String(s).toLowerCase())) return 'Verbindung bereit.'; if(String(s).toLowerCase()==='not_configured') return 'Zugangsdaten in den Einstellungen hinterlegen.'; return 'Status prüfen oder Verbindung neu einrichten.';},
-  async load(){this.loading=true; this.error=''; try{const [i,c]=await Promise.all([apiFetch('/api/integrations/status'), apiFetch('/api/export/channels')]); this.integrations=i||{}; const ch = Array.isArray(c)?c:(c.channels||c.items||[]); this.channels=Array.isArray(ch)?ch:[];}catch(e){this.error=e.message;} this.loading=false;}
+  label(n){const m={shopware:'Shopware',amazon:'Amazon',ebay:'eBay',email:'E-Mail',messenger:'Messenger',omniroute:'KI-Gateway (OmniRoute)',google:'Google Merchant',matterhorn:'Matterhorn (Lieferant)'}; return m[n]||n;},
+  readyCount(){ return Object.values(this.integrations||{}).filter(v=>['ok','connected','healthy','configured','active'].includes(String(this.norm(v)).toLowerCase())).length; },
+  statusHint(v){const s=String(this.norm(v)).toLowerCase(); if(['ok','connected','healthy','configured','active'].includes(s)) return 'Verbindung bereit.'; if(s==='not_configured') return 'Zugangsdaten in den Einstellungen hinterlegen.'; if(['error','failed','down'].includes(s)) return 'Fehlerstatus – Konfiguration/Erreichbarkeit prüfen.'; return 'Status prüfen oder Verbindung neu einrichten.';},
+  async load(){this.loading=true; this.error=''; try{const [i,c]=await Promise.all([apiFetch('/api/integrations/status'), apiFetch('/api/export/channels')]); this.integrations=i||{}; const ch = Array.isArray(c)?c:(c.channels||c.items||[]); this.channels=Array.isArray(ch)?ch:[]; this.lastUpdated=new Date().toISOString();}catch(e){this.error=uiFormatError(e);} this.loading=false;}
 }}
 </script>
 {% endblock %}

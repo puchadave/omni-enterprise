@@ -123,7 +123,7 @@ function mhPage(){return{
       if(this.preview && (this.preview.status==='error'||this.preview.error)){ this.err=true; this.msg='Vorschau fehlgeschlagen: '+(this.preview.error||'Quelle prüfen.'); } else { this.msg='Vorschau abgeschlossen.'; toast('Vorschau abgeschlossen.','success'); }
       await this.refresh();
     }catch(e){ this.err=true; this.msg='Vorschau fehlgeschlagen: '+e.message; } this.busy=false; },
-  async runImport(){ if(this.mode==='full' && !this.confirmFull && !this.preview){ if(!confirm('Vollimport ohne Vorschau – fortfahren?')) return; }
+  async runImport(){ if(this.mode==='full' && !this.confirmFull && !this.preview){ const ok=await uiConfirm({title:'Vollimport ohne Vorschau', body:'Vollimport ohne vorherige Vorschau starten?', details:'Dies kann viele Produktdaten ändern. Empfehlung: zuerst Vorschau prüfen.', requireCheck:true, checkLabel:'Ich möchte ohne Vorschau fortfahren.', danger:true, confirmLabel:'Vollimport starten'}); if(!ok) return; }
     this.busy=true; this.msg=''; this.err=false; this.importResult=null; try{
       const sync_rules={mode:this.mode,preserve_manual_seo:this.preserveSeo,preserve_marketplace_mappings:this.preserveMappings};
       if(this.file){ const fd=new FormData(); fd.append('file', this.file); fd.append('mode', this.mode); fd.append('dry_run', String(this.mode==='dry_run')); fd.append('sync_rules', JSON.stringify(sync_rules)); this.importResult=await apiFetch('/api/import/matterhorn/upload',{method:'POST',body:fd}); }

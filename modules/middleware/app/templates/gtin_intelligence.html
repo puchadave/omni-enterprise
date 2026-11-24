@@ -58,7 +58,7 @@ function gtinPage(){
   async loadLookups(){try{this.lookups=await apiFetch('/api/gtin/lookups?limit=50');}catch(e){this.lookups=[];}},
   async loadConflicts(){try{this.conflicts=await apiFetch('/api/gtin/conflicts?limit=50');}catch(e){this.conflicts=[];}},
   async lookup(){if(!this.gtinInput)return; try{this.lookupResult=await apiFetch('/api/gtin/lookup',{method:'POST',body:JSON.stringify({gtin:this.gtinInput})}); await this.loadLookups();}catch(e){this.lookupResult={error:e.message};}},
-  async saveProvider(){try{await apiFetch('/api/gtin/providers',{method:'POST',body:JSON.stringify(this.provForm)}); await this.loadProviders();}catch(e){alert('Fehler: '+e.message);}}
+  async saveProvider(){try{await apiFetch('/api/gtin/providers',{method:'POST',body:JSON.stringify(this.provForm)}); await this.loadProviders(); toast('Provider gespeichert.','success');}catch(e){toast('Fehler: '+uiFormatError(e),'error');}}
   }
 }
 </script>

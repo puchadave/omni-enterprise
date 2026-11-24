@@ -39,11 +39,9 @@
     </div>
   </div>
 
-  <!-- Messages -->
   <template x-if="msg">
-    <div class="rounded-xl border p-4 text-sm flex items-center justify-between" :class="err ? 'border-red-800/80 bg-red-950/40 text-red-200' : 'border-emerald-800/80 bg-emerald-950/40 text-emerald-200'">
-      <div x-text="msg"></div>
-      <button @click="msg=''" class="text-xs opacity-70 hover:opacity-100">✕</button>
+    <div class="banner" :class="err ? 'banner-error' : 'banner-success'">
+      <div class="flex items-start justify-between gap-3"><div x-text="msg"></div><button @click="msg=''" class="text-xs opacity-70 hover:opacity-100">✕</button></div>
     </div>
   </template>
 
@@ -354,7 +352,7 @@ function connectorsApp() {
         this.productCount = pData.product_count || 0;
         this.allMappings = mData || [];
       } catch (e) {
-        this.msg = 'Fehler beim Laden: ' + e.message;
+        this.msg = 'Fehler beim Speichern: ' + uiFormatError(e);
         this.err = true;
       }
     },
@@ -397,7 +395,7 @@ function connectorsApp() {
         this.msg = `${cid}: ${res.message || 'Test abgeschlossen.'}`;
         this.err = !res.healthy;
       } catch (e) {
-        this.msg = `Test fehlgeschlagen: ${e.message}`;
+        this.msg = `Test fehlgeschlagen: ${uiFormatError(e)}`;
         this.err = true;
       } finally {
         this.testing[cid] = false;
@@ -421,16 +419,12 @@ function connectorsApp() {
     },
 
     async deleteAccount(aid) {
-      if (!confirm('Möchten Sie dieses Konto wirklich entfernen?')) return;
+      const ok = await uiConfirm({title:'Konto entfernen', body:'Möchten Sie dieses Konto wirklich entfernen?', details:'Die Verbindungskonfiguration wird entfernt. Exporte/Syncs für dieses Konto können danach fehlschlagen.', requireCheck:true, checkLabel:'Ich verstehe, dass das Konto entfernt wird.', danger:true, confirmLabel:'Konto entfernen'});
+      if (!ok) return;
       try {
         await apiFetch(`/api/connectors/accounts/${aid}`, { method: 'DELETE' });
-        this.msg = 'Konto entfernt.';
-        this.err = false;
-        await this.refreshAll();
-      } catch (e) {
-        this.msg = 'Fehler beim Löschen: ' + e.message;
-        this.err = true;
-      }
+        this.msg = 'Konto entfernt.'; this.err = false; await this.refreshAll();
+      } catch (e) { this.msg = 'Fehler beim Löschen: ' + uiFormatError(e); this.err = true; }
     },
 
     async saveNewMapping() {
@@ -468,25 +462,19 @@ function connectorsApp() {
         this.exportSku = '';
         await this.refreshAll();
       } catch (e) {
-        this.msg = 'Export fehlgeschlagen: ' + e.message;
+        this.msg = 'Export fehlgeschlagen: ' + uiFormatError(e);
         this.err = true;
       }
     },
 
     async triggerBulkExport() {
-      if (!confirm(`Gesamten Katalog an ${this.activeConnector.platform_name} übertragen?`)) return;
+      const name = this.activeConnector?.platform_name || 'Zielkanal';
+      const ok = await uiConfirm({title:'Gesamtkatalog exportieren', body:`Gesamten Katalog an ${name} übertragen?`, details:'Dies kann viele Export-Jobs erzeugen und externe Systeme belasten. Nur ausführen, wenn Mapping, Konto und Produktdaten geprüft sind.', requireCheck:true, checkLabel:'Ich habe Mapping und Zielkonto geprüft.', danger:true, confirmLabel:'Katalogexport starten'});
+      if (!ok) return;
       try {
-        await apiFetch(`/api/connectors/${this.activeConnector.connector_id}/export`, {
-          method: 'POST',
-          body: JSON.stringify({ bulk: true })
-        });
-        this.msg = 'Katalogexport in Hintergrund-Queue eingereiht.';
-        this.err = false;
-        await this.refreshAll();
-      } catch (e) {
-        this.msg = 'Katalogexport fehlgeschlagen: ' + e.message;
-        this.err = true;
-      }
+        await apiFetch(`/api/connectors/${this.activeConnector.connector_id}/export`, { method: 'POST', body: JSON.stringify({ bulk: true }) });
+        this.msg = 'Katalogexport in Hintergrund-Queue eingereiht.'; this.err = false; await this.refreshAll();
+      } catch (e) { this.msg = 'Katalogexport fehlgeschlagen: ' + uiFormatError(e); this.err = true; }
     }
   };
 }

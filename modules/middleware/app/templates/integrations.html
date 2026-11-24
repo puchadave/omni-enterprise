@@ -1,29 +1,36 @@
 {% extends "base.html" %}
 {% block title %}Integrationsstatus | OMNI-CORE{% endblock %}
 {% block content %}
-<div x-data="page()" x-init="load()" class="space-y-4 max-w-7xl mx-auto">
+<div x-data="page()" x-init="load()" class="space-y-4 max-w-[1600px] mx-auto">
   <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
     <div>
       <h1 class="text-2xl md:text-3xl font-bold">Integrationsstatus</h1>
-      <p class="text-slate-400">Prüfen Sie auf einen Blick, welche Anbindungen betriebsbereit sind. Für fehlende oder fehlerhafte Verbindungen finden Sie Hinweise zur Behebung.</p>
+      <p class="text-slate-400">Live-Status der Anbindungen. Keine Verbindung wird als aktiv dargestellt, wenn das Backend keinen positiven Status meldet.</p>
+      <div class="text-xs text-slate-500 mt-1" x-text="lastUpdated ? 'Zuletzt geprüft: '+fmtDate(lastUpdated) : ''"></div>
     </div>
-    <div class="flex gap-2"><a href="/ui/settings" class="btn btn-secondary">Einstellungen öffnen</a><button @click="load()" class="btn btn-primary">Status prüfen</button></div>
+    <div class="flex gap-2"><a href="/ui/settings" class="btn btn-secondary">Einstellungen öffnen</a><button @click="load()" class="btn btn-primary" :disabled="loading">Status prüfen</button></div>
   </div>
 
-  <template x-if="error"><div class="banner banner-error"><div class="font-medium">Status konnte nicht abgerufen werden</div><div class="text-sm mt-1" x-text="error"></div><p class="text-xs mt-2">Bitte prüfen Sie Ihre Verbindung zum System und versuchen Sie es erneut.</p><button class="btn btn-secondary !py-1.5 mt-2" @click="load()">Erneut versuchen</button></div></template>
+  <template x-if="error"><div class="banner banner-error"><div class="font-medium">Status konnte nicht abgerufen werden</div><div class="text-sm mt-1" x-text="error"></div><button class="btn btn-secondary !py-1.5 mt-2" @click="load()">Erneut versuchen</button></div></template>
+
+  <div class="grid md:grid-cols-4 gap-3" x-show="!error">
+    <div class="kpi"><div class="kpi-label">Anbindungen</div><div class="kpi-value" x-text="Object.keys(integrations).length"></div><div class="kpi-meta">Gesamt</div></div>
+    <div class="kpi"><div class="kpi-label">Betriebsbereit</div><div class="kpi-value" x-text="countBy(['ok','connected','healthy','configured','active'])"></div><div class="kpi-meta">Grüner Status</div></div>
+    <div class="kpi"><div class="kpi-label">Warnung/Setup</div><div class="kpi-value" x-text="countBy(['not_configured','unknown','inactive','disabled','pending'])"></div><div class="kpi-meta">Prüfen/Einrichten</div></div>
+    <div class="kpi"><div class="kpi-label">Fehler</div><div class="kpi-value" x-text="countBy(['error','failed','down'])"></div><div class="kpi-meta">Sofort prüfen</div></div>
+  </div>
 
   <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-4" x-show="!error">
     <template x-if="loading"><template x-for="i in 6" :key="i"><div class="card p-4 space-y-2"><div class="skeleton h-5 w-1/2"></div><div class="skeleton h-6 w-24"></div><div class="skeleton h-4 w-3/4"></div></div></template></template>
     <template x-if="!loading && Object.keys(integrations).length===0">
-      <div class="md:col-span-2 lg:col-span-3 card"><div class="empty-state"><div class="icon">🔗</div><div class="title">Noch keine Integrationen eingerichtet</div><div class="text-sm">Verbinden Sie z. B. Shopware, Marktplätze oder das KI-Gateway in den Einstellungen, damit Daten synchronisiert werden können.</div><a href="/ui/settings" class="btn btn-primary mt-3">Anbindungen einrichten</a></div></div>
+      <div class="md:col-span-2 lg:col-span-3 card"><div class="empty-state"><div class="icon">🔗</div><div class="title">Noch keine Integrationen eingerichtet</div><div class="text-sm">Verbinden Sie Shopware, Marktplätze oder das KI-Gateway in den Einstellungen.</div><a href="/ui/settings" class="btn btn-primary mt-3">Anbindungen einrichten</a></div></div>
     </template>
     <template x-for="(val,name) in integrations" :key="name">
       <div class="card p-4 flex flex-col gap-2">
-        <div class="flex items-center justify-between"><h2 class="font-semibold capitalize" x-text="label(name)"></h2><span class="badge" :class="uiBadgeClass(norm(val))" x-text="uiStatusLabel(norm(val))"></span></div>
+        <div class="flex items-center justify-between gap-2"><h2 class="font-semibold capitalize" x-text="label(name)"></h2><span class="badge" :class="uiBadgeClass(norm(val))" x-text="uiStatusLabel(norm(val))"></span></div>
         <p class="text-sm text-slate-400" x-text="hint(name, val)"></p>
-        <div class="mt-auto pt-2 flex gap-2">
-          <a href="/ui/settings" class="btn btn-secondary !py-1.5 !text-xs">In Einstellungen prüfen</a>
-        </div>
+        <div class="text-xs text-slate-500" x-text="detail(val)"></div>
+        <div class="mt-auto pt-2 flex gap-2"><a href="/ui/settings" class="btn btn-secondary !py-1.5 !text-xs">In Einstellungen prüfen</a></div>
       </div>
     </template>
   </div>
@@ -32,11 +39,13 @@
 {% block scripts %}
 <script>
 function page(){return{
-  loading:true,error:'',integrations:{},
+  loading:true,error:'',integrations:{},lastUpdated:null,
   norm(v){return typeof v==='string'?v:(v&&(v.status||v.state))||'unknown';},
+  detail(v){ if(v && typeof v==='object'){ return v.message || v.detail || v.last_error || ''; } return ''; },
+  countBy(list){ const set=new Set(list); return Object.values(this.integrations||{}).filter(v=>set.has(String(this.norm(v)).toLowerCase())).length; },
   label(n){const m={shopware:'Shopware',amazon:'Amazon',ebay:'eBay',email:'E-Mail',messenger:'Messenger',omniroute:'KI-Gateway (OmniRoute)',google:'Google Merchant',matterhorn:'Matterhorn (Lieferant)'}; return m[n]||n;},
-  hint(name,v){const s=String(this.norm(v)).toLowerCase(); if(['ok','connected','healthy','configured','active'].includes(s)) return 'Die Anbindung ist eingerichtet und einsatzbereit.'; if(['error','failed','down'].includes(s)) return 'Es liegt ein Problem vor. Bitte prüfen Sie Zugangsdaten und Erreichbarkeit in den Einstellungen.'; if(s==='not_configured'||s==='unknown'||s==='inactive'||s==='disabled') return 'Diese Anbindung ist noch nicht eingerichtet. Hinterlegen Sie die erforderlichen Zugangsdaten in den Einstellungen.'; return 'Status unbekannt – bitte in den Einstellungen prüfen.';},
-  async load(){this.loading=true; this.error=''; try{this.integrations=await apiFetch('/api/integrations/status')||{};}catch(e){this.error=e.message; this.integrations={};} this.loading=false;}
+  hint(name,v){const s=String(this.norm(v)).toLowerCase(); if(['ok','connected','healthy','configured','active'].includes(s)) return 'Die Anbindung ist eingerichtet und einsatzbereit.'; if(['error','failed','down'].includes(s)) return 'Problem erkannt. Zugangsdaten, Erreichbarkeit und Logs prüfen.'; if(['not_configured','unknown','inactive','disabled'].includes(s)) return 'Nicht eingerichtet oder nicht aktiv. Zugangsdaten in den Einstellungen hinterlegen.'; return 'Status unbekannt – bitte prüfen.';},
+  async load(){this.loading=true; this.error=''; try{this.integrations=await apiFetch('/api/integrations/status')||{}; this.lastUpdated=new Date().toISOString();}catch(e){this.error=uiFormatError(e); this.integrations={};} this.loading=false;}
 }}
 </script>
 {% endblock %}

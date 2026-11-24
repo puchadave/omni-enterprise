@@ -121,27 +121,28 @@
         async function testConnection(accountId) {
             try {
                 const data = await apiFetch(`/api/google/accounts/${encodeURIComponent(accountId)}/test`, { method: 'POST' });
-                alert(`Verbindung: ${data.health.status}`);
+                toast(`Verbindung: ${(data.health && data.health.status) || 'ok'}`, 'success');
                 loadAccounts();
             } catch (e) {
-                alert('Verbindungstest fehlgeschlagen: ' + e.message);
+                toast('Verbindungstest fehlgeschlagen: ' + uiFormatError(e), 'error');
             }
         }
 
         async function retryItem(exportId) {
             try {
                 await apiFetch(`/api/google/export/retry?export_id=${encodeURIComponent(exportId)}`, { method: 'POST' });
+                toast('Wiederholung gestartet.', 'success');
                 loadQueue();
             } catch (e) {
-                alert('Wiederholung fehlgeschlagen: ' + e.message);
+                toast('Wiederholung fehlgeschlagen: ' + uiFormatError(e), 'error');
             }
         }
 
-        // Initialize
         loadStats();
         loadAccounts();
         loadQueue();
-        setInterval(loadQueue, 30000);
+        const _gqPoll=setInterval(()=>{ if(!document.hidden) loadQueue(); }, 30000);
+        window.addEventListener('beforeunload',()=>clearInterval(_gqPoll));
     </script>
 </div>
 {% endblock %}

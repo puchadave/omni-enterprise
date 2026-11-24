@@ -2,6 +2,35 @@
   function getCookie(name){const parts=document.cookie.split(';').map(value=>value.trim());for(const part of parts){if(part.startsWith(name+'=')) return decodeURIComponent(part.slice(name.length+1));}return '';}
   async function ensureCsrf(){let token=getCookie('csrf_token');if(!token){const data=await apiFetch('/api/auth/csrf',{_skipCsrf:true});token=data&&data.csrf_token||getCookie('csrf_token');}if(!token) throw new Error('Die Sicherheitsprüfung konnte nicht vorbereitet werden. Bitte laden Sie die Seite neu.');return token;}
 
+  function uiErrorObject(error, fallback='Aktion fehlgeschlagen.'){
+    const raw=error && typeof error==='object' ? error : {message:String(error||fallback)};
+    return {
+      message: String(raw.message||fallback),
+      status: raw.status,
+      details: raw.details ?? raw.detail ?? raw.data ?? null,
+      remediation: raw.remediation || '',
+      requestId: raw.requestId || raw.request_id || null,
+    };
+  }
+  function uiFormatError(err, fallback){
+    const e=uiErrorObject(err,fallback); return e.message + (e.requestId?` (Ref: ${e.requestId})`:'');
+  }
+  function uiPoller(fn, ms=10000){
+    let timer=null, busy=false, stopped=true;
+    const tick=async()=>{ if(busy||stopped) return; busy=true; try{ await fn(); } finally { busy=false; } };
+    return {
+      start(immediate=true){ if(timer) clearInterval(timer); stopped=false; if(immediate) tick(); timer=setInterval(tick,ms); },
+      stop(){ stopped=true; if(timer){clearInterval(timer); timer=null;} },
+      restart(immediate=true){ this.start(immediate); },
+      isRunning(){ return !stopped; }
+    };
+  }
+  async function uiCopyText(text){
+    const value=typeof text==='string'?text:JSON.stringify(text,null,2);
+    try{ await navigator.clipboard.writeText(value); toast('In Zwischenablage kopiert.','success'); }
+    catch(_){ const ta=document.createElement('textarea'); ta.value=value; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); toast('In Zwischenablage kopiert.','success'); }
+  }
+
   function apiErrorDetail(data){
     const detail=data&&typeof data==='object'?(data.detail??data.error??data.message??data.msg):data;
     if(Array.isArray(detail)){
@@ -58,28 +87,34 @@
       response=await fetch(url,opts);
       text=await response.text();
     }catch(e){
-      throw new Error('Keine Verbindung zum Server möglich. Bitte prüfen Sie Ihre Netzwerkverbindung und versuchen Sie es erneut.');
+      const err=new Error('Keine Verbindung zum Server möglich. Bitte prüfen Sie Ihre Netzwerkverbindung und versuchen Sie es erneut.');
+      err.status=0; err.details=null; throw err;
     }
     const contentType=response.headers.get('content-type')||'';
     let data=text;
     if(text&&(contentType.includes('json')||/^[\[{]/.test(text.trim()))){try{data=JSON.parse(text);}catch(_){data=text;}}
     else if(!text) data=null;
-    if(!response.ok) throw new Error(friendlyApiError(data,response.status,response.statusText,url));
+    if(!response.ok) {
+      const err=new Error(friendlyApiError(data,response.status,response.statusText,url));
+      err.status=response.status; err.data=data; err.details=data; err.requestId=response.headers.get('x-request-id')||null; throw err;
+    }
     return data;
   }
 
   // UI helpers (global)
   function uiBadgeClass(kind){
     const k=String(kind||'').toLowerCase();
-    if(['active','aktiv','paid','verified','captured','completed','ok','success','healthy','connected','configured','synced','synchronisiert','dispatched','freigegeben','release_allowed','enabled'].includes(k)) return 'badge badge-green';
-    if(['pending','ausstehend','waiting','queued','running','processing','open','partial','not_configured','unconfigured','draft','paused','review','syncing','läuft','gesperrt','locked','unpaid'].includes(k)) return 'badge badge-amber';
-    if(['blocked','blockiert','failed','error','down','cancelled','rejected','denied','inactive','disabled'].includes(k)) return 'badge badge-red';
+    if(['active','aktiv','paid','verified','captured','completed','ok','success','healthy','connected','configured','synced','synchronisiert','dispatched','freigegeben','release_allowed','enabled','ready','ready_for_sale','validated','imported','completed_with_errors_resolved','pass'].includes(k)) return 'badge badge-green';
+    if(['pending','ausstehend','waiting','queued','running','processing','open','partial','not_configured','unconfigured','draft','paused','review','syncing','läuft','gesperrt','locked','unpaid','warning','degraded','stale','selected','ai_selected','import_approved','planned','due','retry','partial_success','completed_with_errors'].includes(k)) return 'badge badge-amber';
+    if(['blocked','blockiert','failed','error','down','cancelled','rejected','denied','inactive','disabled','critical','import_blocked','dead_letter','missing'].includes(k)) return 'badge badge-red';
     return 'badge badge-slate';
   }
   function uiStatusLabel(v){
     const k=String(v||'').toLowerCase();
-    const map={active:'Aktiv', enabled:'Aktiv', disabled:'Deaktiviert', inactive:'Inaktiv', paid:'Bezahlt', verified:'Bezahlt / verifiziert', captured:'Bezahlt', completed:'Abgeschlossen', pending:'Ausstehend', open:'Offen', draft:'Entwurf', paused:'Pausiert', archived:'Archiviert', failed:'Fehler', error:'Fehler', blocked:'Blockiert', locked:'Gesperrt', dispatched:'Versendet', received:'Eingegangen', reserved:'Reserviert', dispatching:'In Versand', cancelled:'Storniert', connected:'Verbunden', configured:'Konfiguriert', not_configured:'Nicht konfiguriert', queued:'Wartend', running:'Läuft', success:'Erfolgreich', healthy:'Stabil'};
-    return map[k] || (v==null||v==='' ? '—' : String(v));
+    const map={active:'Aktiv',enabled:'Aktiv',disabled:'Deaktiviert',inactive:'Inaktiv',paid:'Bezahlt',verified:'Bezahlt / verifiziert',captured:'Bezahlt',completed:'Abgeschlossen',pending:'Ausstehend',open:'Offen',draft:'Entwurf',paused:'Pausiert',archived:'Archiviert',failed:'Fehler',error:'Fehler',blocked:'Blockiert',locked:'Gesperrt',dispatched:'Versendet',received:'Eingegangen',reserved:'Reserviert',dispatching:'In Versand',cancelled:'Storniert',connected:'Verbunden',configured:'Konfiguriert',not_configured:'Nicht konfiguriert',queued:'Wartend',running:'Läuft',success:'Erfolgreich',healthy:'Stabil',warning:'Warnung',degraded:'Eingeschränkt',stale:'Veraltet',unknown:'Unbekannt',
+      ai_selected:'KI-selektiert',validated:'Validiert',import_approved:'Import freigegeben',imported:'Importiert',ready_for_sale:'Verkaufsbereit',import_blocked:'Import blockiert',release_allowed:'Freigabe möglich',
+      planned:'Geplant',approved:'Freigegeben',executed:'Ausgeführt',due:'Fällig',completed_with_errors:'Mit Fehlern abgeschlossen',partial_success:'Teilweise erfolgreich'};
+    return map[k] || (v==null||v==='' ? '—' : String(v).replace(/_/g,' '));
   }
   function uiPaymentLabel(status){ return uiStatusLabel(status||'unknown'); }
   function uiFulfillmentBlocked(order){

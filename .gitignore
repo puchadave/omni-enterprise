@@ -25,3 +25,6 @@ __pycache__/
 # shopware generated integration secrets
 modules/shopware/integration/credentials.env
 modules/shopware/integration/live/
+
+# local mcp/dev artifacts
+sqlite_mcp_server.db

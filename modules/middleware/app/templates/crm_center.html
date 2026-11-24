@@ -154,7 +154,8 @@ function crmPage(){return {
   async runAction(){
     if(!this.actionOrderId){this.notify('Bitte geben Sie eine Bestellnummer an, damit die Aktion geprüft werden kann.','warn'); return;}
     const labelMap={manual_fulfillment_release:'manuelle Freigabe',manual_approval:'manuelle Prüfung',goodwill_credit:'Kulanz-Prüfung'};
-    if(!confirm('Möchten Sie die Aktion „'+(labelMap[this.actionName]||this.actionName)+'“ für Bestellung '+this.actionOrderId+' protokollieren/anstoßen? Die Ausführung erfolgt nur, wenn die Zahlung bestätigt und keine Sperre aktiv ist.')) return;
+    const ok = await uiConfirm({title:'CRM-Aktion bestätigen', body:`Aktion „${labelMap[this.actionName]||this.actionName}“ für Bestellung ${this.actionOrderId} protokollieren/anstoßen?`, details:'Ausführung nur bei bestätigter Zahlung und ohne aktive Sperre. Es werden keine Fake-Weitergaben durchgeführt.', requireCheck:true, checkLabel:'Ich habe Bestellung und Zahlungsstatus geprüft.', danger:true, confirmLabel:'Aktion ausführen'});
+    if(!ok) return;
     this.busy=true; try{await apiFetch('/api/crm/actions',{method:'POST',body:JSON.stringify({action:this.actionName, order_id:this.actionOrderId, payload:{}})}); this.notify('Aktion wurde geprüft und protokolliert. Eine externe Ausführung erfolgt nur über konfigurierte Systeme.','success');}catch(e){this.notify('Aktion nicht möglich: '+e.message,'error');} this.busy=false;
   },
   async createAppt(){

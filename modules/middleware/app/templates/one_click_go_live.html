@@ -1,72 +1,98 @@
 {% extends "base.html" %}
 {% block title %}One-Click Go-Live | OMNI-CORE{% endblock %}
 {% block content %}
-<div x-data="oneClick()" x-init="init()" class="space-y-4 max-w-[1500px] mx-auto">
-  <div class="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-3">
+<div x-data="oneClick()" x-init="init()" class="space-y-4 max-w-[1600px] mx-auto">
+  <div class="flex flex-col xl:flex-row xl:items-end xl:justify-between gap-3">
     <div>
       <h1 class="text-2xl md:text-3xl font-bold">One-Click Go-Live</h1>
-      <p class="text-slate-400">Zentrale Steuerung für Discovery, Preflight, Planung und Freigabe. Keine Fake-Verbindungen, keine blind veröffentlichten Produkte.</p>
+      <p class="text-slate-400">Kontrollierter Vertriebsstart: Discovery, Preflight, MID-Release, Planung. Keine Fake-Verbindungen, keine Veröffentlichung bei Blockern.</p>
+      <div class="text-xs text-slate-500 mt-1" x-text="lastUpdated ? 'Zuletzt aktualisiert: '+fmtDate(lastUpdated) : 'Noch nicht geladen'"></div>
     </div>
     <div class="flex gap-2 flex-wrap">
-      <button class="btn btn-secondary" @click="loadAll()">Aktualisieren</button>
-      <button class="btn btn-secondary" @click="discover()">Systeme erkennen</button>
-      <button class="btn btn-secondary" @click="preflight()">Go-Live testen</button>
-      <button class="btn btn-secondary" @click="salesSelect()">KI-Selektion</button>
-      <button class="btn btn-secondary" @click="salesValidate()">Validieren</button>
-      <button class="btn btn-secondary" @click="salesImport()">Import Shopware</button>
-      <button class="btn btn-danger" @click="salesStart()">START PRODUCTIVE SALES</button>
+      <button class="btn btn-secondary" @click="loadAll()" :disabled="busy">Aktualisieren</button>
+      <button class="btn btn-secondary" @click="discover()" :disabled="busy">Systeme erkennen</button>
+      <button class="btn btn-secondary" @click="preflight()" :disabled="busy">Go-Live testen</button>
+      <button class="btn btn-secondary" @click="salesSelect()" :disabled="busy">KI-Selektion</button>
+      <button class="btn btn-secondary" @click="salesValidate()" :disabled="busy">Validieren</button>
+      <button class="btn btn-secondary" @click="salesImport()" :disabled="busy">Import Shopware</button>
+      <button class="btn btn-danger" @click="salesStart()" :disabled="busy || hasBlockingPreflight()">START PRODUCTIVE SALES</button>
     </div>
   </div>
 
-  <template x-if="error"><div class="banner banner-error"><div class="font-medium">Fehler</div><div class="text-sm mt-1" x-text="error"></div></div></template>
+  <template x-if="error"><div class="banner banner-error"><div class="font-medium">Aktion fehlgeschlagen</div><div class="text-sm mt-1" x-text="error"></div></div></template>
   <template x-if="notice"><div class="banner banner-success" x-text="notice"></div></template>
-
-  <div class="card p-4" x-show="release.release_state">
-    <h2 class="font-semibold mb-2">MID Release / Sales State</h2>
-    <pre class="text-xs bg-slate-950 border border-slate-800 rounded p-3 overflow-auto max-h-[240px]" x-text="JSON.stringify(release,null,2)"></pre>
-  </div>
+  <template x-if="hasBlockingPreflight()"><div class="banner banner-warn"><div class="font-medium">Go-Live blockiert</div><div class="text-sm mt-1">Preflight-Blocker vorhanden. Produktivstart bleibt gesperrt, bis Payment/Shipping/Legal/Technik geprüft und grün sind.</div></div></template>
 
   <div class="grid md:grid-cols-2 xl:grid-cols-4 gap-3">
-    <div class="card p-4"><div class="text-xs text-slate-400">Launch-Status</div><div class="text-xl font-bold mt-1" x-text="state.status||'idle'"></div></div>
-    <div class="card p-4"><div class="text-xs text-slate-400">Zielzeit (ISO)</div><div class="text-sm font-mono mt-1 break-all" x-text="state.target_time||'nicht geplant'"></div></div>
-    <div class="card p-4"><div class="text-xs text-slate-400">Freigegeben</div><div class="text-xl font-bold mt-1" x-text="state.approved ? 'Ja' : 'Nein'"></div></div>
-    <div class="card p-4"><div class="text-xs text-slate-400">Preflight</div><div class="text-xl font-bold mt-1" x-text="(state.last_preflight && state.last_preflight.status) || preflightResult.status || '—'"></div></div>
+    <div class="kpi"><div class="kpi-label">Launch-Status</div><div class="kpi-value"><span class="badge" :class="uiBadgeClass(state.status||'idle')" x-text="uiStatusLabel(state.status||'idle')"></span></div><div class="kpi-meta" x-text="state.target_time ? 'Ziel: '+state.target_time : 'Kein Launch geplant'"></div></div>
+    <div class="kpi"><div class="kpi-label">Preflight</div><div class="kpi-value"><span class="badge" :class="uiBadgeClass(preflightResult.status||'unknown')" x-text="uiStatusLabel(preflightResult.status||'unknown')"></span></div><div class="kpi-meta" x-text="(preflightResult.blockers||[]).length+' Blocker / '+(preflightResult.warnings||[]).length+' Warnungen'"></div></div>
+    <div class="kpi"><div class="kpi-label">MID Release</div><div class="kpi-value" x-text="release.release_state?.status || release.status || '—'"></div><div class="kpi-meta" x-text="(release.counts && ('Ready: '+(release.counts.READY_FOR_SALE||0))) || 'Keine Release-Zählung'"></div></div>
+    <div class="kpi"><div class="kpi-label">Freigabe</div><div class="kpi-value" x-text="state.approved ? 'Ja' : 'Nein'"></div><div class="kpi-meta" x-text="state.approved_by ? ('durch '+state.approved_by) : 'Keine Freigabe erfasst'"></div></div>
   </div>
 
-  <div class="card p-4 space-y-3">
-    <h2 class="font-semibold">Mitternachts-Verkaufsstart planen</h2>
-    <p class="text-xs text-slate-400">Persistenter Backend-Scheduler (Europe/Berlin Zielzeit als ISO speichern). Bei Blockern wird kein Produktivstart ausgeführt.</p>
-    <div class="grid md:grid-cols-3 gap-3">
-      <label><div class="label">Zielzeit (ISO, z.B. 2026-11-23T23:00:00Z)</div><input class="input" x-model="plan.target_time" placeholder="2026-11-23T23:00:00Z"></label>
-      <label><div class="label">Freigegeben durch</div><input class="input" x-model="plan.approved_by" placeholder="admin"></label>
-      <label class="flex items-center gap-2 text-sm mt-6"><input type="checkbox" x-model="plan.approved"> Freigabe erteilen</label>
+  <div class="grid xl:grid-cols-2 gap-4">
+    <div class="card p-4 space-y-3">
+      <div><h2 class="section-title">Mitternachts-Verkaufsstart planen</h2><p class="section-sub">Persistenter Backend-Scheduler. Planung ist nur mit expliziter Freigabe möglich; Ausführung bleibt bei Blockern gesperrt.</p></div>
+      <div class="grid md:grid-cols-2 gap-3">
+        <label><div class="label">Zielzeit (ISO)</div><input class="input" x-model="plan.target_time" placeholder="2026-11-23T23:00:00Z"><div class="help-text">Beispiel: <span class="mono">2026-11-23T23:00:00Z</span></div></label>
+        <label><div class="label">Freigegeben durch</div><input class="input" x-model="plan.approved_by" placeholder="Name / User"></label>
+      </div>
+      <label class="flex items-center gap-2 text-sm"><input type="checkbox" x-model="plan.approved"> Freigabe erteilen</label>
+      <label class="flex items-start gap-2 text-sm" x-show="plan.approved"><input type="checkbox" x-model="plan.confirm" class="mt-1"><span>Ich bestätige: Preflight-Blocker, Payment, Shipping, Legal und Shopware-Readiness wurden geprüft. Bei Blockern darf kein Produktivstart erfolgen.</span></label>
+      <div class="flex gap-2 flex-wrap">
+        <button class="btn btn-primary" @click="planLaunch()" :disabled="busy || (plan.approved && !plan.confirm)">Launch planen</button>
+        <button class="btn btn-secondary" @click="executeDue()" :disabled="busy">Fälligen Launch prüfen</button>
+      </div>
     </div>
-    <label class="flex items-center gap-2 text-sm" x-show="plan.approved"><input type="checkbox" x-model="plan.confirm"> Ich bestätige: Preflight-Blocker/Payment/Shipping/Legal müssen vor echtem Go-Live geprüft sein.</label>
-    <div class="flex gap-2 flex-wrap">
-      <button class="btn btn-primary" @click="planLaunch()" :disabled="busy" x-text="busy?'Läuft...':'START VERKAUF UM MITTERNACHT PLANEN'"></button>
-      <button class="btn btn-secondary" @click="executeDue()">Fälligen Launch prüfen</button>
+
+    <div class="card p-4">
+      <h2 class="section-title mb-2">Preflight Blocker / Warnungen</h2>
+      <div class="space-y-2 max-h-[360px] overflow-auto">
+        <template x-for="b in (preflightResult.blockers||[])" :key="b.code+b.message"><div class="banner banner-error"><div class="font-medium" x-text="b.code"></div><div class="text-xs mt-1" x-text="b.message"></div><div class="text-xs mt-1 opacity-80" x-text="remediation(b.code)"></div></div></template>
+        <template x-for="w in (preflightResult.warnings||[])" :key="w.code+w.message"><div class="banner banner-warn"><div class="font-medium" x-text="w.code"></div><div class="text-xs mt-1" x-text="w.message"></div></div></template>
+        <div x-show="!(preflightResult.blockers||[]).length && !(preflightResult.warnings||[]).length" class="empty-state !py-8"><div class="title">Kein Preflight-Ergebnis</div><div class="text-sm">Führen Sie „Go-Live testen“ aus, um Blocker und Warnungen zu sehen.</div></div>
+      </div>
     </div>
   </div>
 
   <div class="grid xl:grid-cols-2 gap-4">
     <div class="card p-4">
-      <h2 class="font-semibold mb-2">Systemstatus / Discovery</h2>
-      <pre class="text-xs bg-slate-950 border border-slate-800 rounded p-3 overflow-auto max-h-[420px]" x-text="JSON.stringify(discovery.systems||discovery, null, 2)"></pre>
-    </div>
-    <div class="card p-4">
-      <h2 class="font-semibold mb-2">Preflight Blocker / Warnungen</h2>
-      <div class="space-y-2 max-h-[420px] overflow-auto">
-        <template x-for="b in (preflightResult.blockers||[])" :key="b.code+b.message"><div class="banner banner-error"><div class="font-medium" x-text="b.code"></div><div class="text-xs mt-1" x-text="b.message"></div></div></template>
-        <template x-for="w in (preflightResult.warnings||[])" :key="w.code+w.message"><div class="banner banner-warn"><div class="font-medium" x-text="w.code"></div><div class="text-xs mt-1" x-text="w.message"></div></div></template>
-        <div x-show="!(preflightResult.blockers||[]).length && !(preflightResult.warnings||[]).length" class="text-sm text-slate-400">Noch kein Preflight ausgeführt.</div>
+      <div class="flex items-center justify-between mb-2"><h2 class="section-title">MID Release / Sales State</h2><button class="btn btn-ghost !py-1 !px-2 text-xs" @click="loadRelease()">Neu laden</button></div>
+      <div class="grid sm:grid-cols-3 gap-2 mb-3 text-sm">
+        <div class="bg-slate-950 border border-slate-800 rounded p-2"><div class="text-slate-400 text-xs">Gesamt</div><div class="font-semibold" x-text="release.total ?? (release.items||[]).length ?? '—'"></div></div>
+        <div class="bg-slate-950 border border-slate-800 rounded p-2"><div class="text-slate-400 text-xs">Ready for Sale</div><div class="font-semibold" x-text="release.counts?.READY_FOR_SALE ?? '—'"></div></div>
+        <div class="bg-slate-950 border border-slate-800 rounded p-2"><div class="text-slate-400 text-xs">Blockiert</div><div class="font-semibold" x-text="release.counts?.IMPORT_BLOCKED ?? '—'"></div></div>
       </div>
+      <div class="table-wrap max-h-[360px]">
+        <table class="tbl"><thead><tr><th>SKU</th><th>Status</th><th>Score</th><th>Shopware</th><th>Fehler</th></tr></thead><tbody>
+          <template x-for="item in (release.items||[]).slice(0,20)" :key="item.sku || item.id">
+            <tr><td class="mono text-xs" x-text="item.sku||'—'"></td><td><span class="badge" :class="uiBadgeClass(item.lifecycle_status||item.status)" x-text="uiStatusLabel(item.lifecycle_status||item.status)"></span></td><td x-text="item.selection_score ?? '—'"></td><td class="mono text-xs" x-text="item.shopware_product_id || '—'"></td><td class="text-xs text-red-300" x-text="item.last_error || (item.validation_errors||[]).length ? (item.last_error || 'Validierungsfehler') : '—'"></td></tr>
+          </template>
+          <tr x-show="!(release.items||[]).length"><td colspan="99"><div class="empty-state !py-6"><div class="title">Keine Release-Daten</div><div class="text-sm">KI-Selektion/Validierung ausführen, um Kandidaten zu sehen.</div></div></td></tr>
+        </tbody></table>
+      </div>
+      <details class="mt-3 text-xs text-slate-500"><summary class="cursor-pointer hover:text-slate-300">Technische Details</summary><pre class="mt-2 bg-slate-950 border border-slate-800 rounded p-2 overflow-auto max-h-52" x-text="JSON.stringify(release,null,2)"></pre></details>
+    </div>
+
+    <div class="card p-4">
+      <div class="flex items-center justify-between mb-2"><h2 class="section-title">Systemstatus / Discovery</h2><button class="btn btn-ghost !py-1 !px-2 text-xs" @click="uiCopyText(discovery)">JSON kopieren</button></div>
+      <div class="space-y-2 max-h-[360px] overflow-auto">
+        <template x-for="(val,key) in (discovery.systems||{})" :key="key">
+          <div class="flex items-center justify-between border border-slate-800 rounded p-2 bg-slate-950/40">
+            <div><div class="font-medium capitalize" x-text="key"></div><div class="text-xs text-slate-500" x-text="typeof val==='object' ? (val.message||val.status||val.detail||'') : String(val)"></div></div>
+            <span class="badge" :class="uiBadgeClass(typeof val==='object' ? (val.status||val.state||'unknown') : val)" x-text="uiStatusLabel(typeof val==='object' ? (val.status||val.state||'unknown') : val)"></span>
+          </div>
+        </template>
+        <div x-show="!discovery.systems || !Object.keys(discovery.systems||{}).length" class="empty-state !py-6"><div class="title">Noch keine Discovery</div><div class="text-sm">„Systeme erkennen“ ausführen.</div></div>
+      </div>
+      <details class="mt-3 text-xs text-slate-500"><summary class="cursor-pointer hover:text-slate-300">Technische Details</summary><pre class="mt-2 bg-slate-950 border border-slate-800 rounded p-2 overflow-auto max-h-52" x-text="JSON.stringify(discovery,null,2)"></pre></details>
     </div>
   </div>
 
   <div class="card p-4">
-    <h2 class="font-semibold mb-2">Launch-Historie</h2>
-    <div class="table-wrap max-h-80"><table class="tbl"><thead><tr><th>Zeit</th><th>Aktion</th><th>Status/Result</th><th>Details</th></tr></thead><tbody>
-      <template x-for="h in (state.history||[])" :key="h.id"><tr><td class="text-xs text-slate-400" x-text="h.at"></td><td x-text="h.action"></td><td x-text="h.status||h.result||''"></td><td class="text-xs font-mono" x-text="JSON.stringify(h)"></td></tr></template>
+    <h2 class="section-title mb-2">Launch-Historie</h2>
+    <div class="table-wrap max-h-72"><table class="tbl"><thead><tr><th>Zeit</th><th>Aktion</th><th>Status</th><th>Details</th></tr></thead><tbody>
+      <template x-for="h in (state.history||[])" :key="h.id || h.at+Math.random()"><tr><td class="text-xs text-slate-400" x-text="fmtDate(h.at)"></td><td x-text="h.action"></td><td><span class="badge" :class="uiBadgeClass(h.status||h.result||'unknown')" x-text="uiStatusLabel(h.status||h.result||'—')"></span></td><td class="text-xs text-slate-400" x-text="h.reason || h.message || ''"></td></tr></template>
       <tr x-show="!(state.history||[]).length"><td colspan="99" class="text-center text-slate-500 py-6">Keine Historie.</td></tr>
     </tbody></table></div>
   </div>
@@ -75,19 +101,24 @@
 {% block scripts %}
 <script>
 function oneClick(){return{
-  error:'', notice:'', busy:false, state:{}, discovery:{}, preflightResult:{}, release:{},
+  error:'', notice:'', busy:false, lastUpdated:null, state:{}, discovery:{}, preflightResult:{}, release:{},
   plan:{target_time:'', approved:false, approved_by:'', confirm:false},
+  hasBlockingPreflight(){ return (this.preflightResult.blockers||[]).length>0; },
+  remediation(code){ const m={PAYMENT_NOT_VERIFIED:'Payment im Shopware/Admin prüfen und verifizieren.',SHIPPING_NOT_VERIFIED:'Shipping/Versandarten prüfen und verifizieren.',LEGAL_NOT_VERIFIED:'Rechtstexte/Legal-Setup prüfen und verifizieren.',SHOPWARE_NOT_CONNECTED:'Shopware-Verbindung testen und Credentials/URL prüfen.'}; return m[code] || 'Details prüfen, Ursache beheben, Preflight erneut ausführen.'; },
   async init(){ await this.loadAll(); await this.loadRelease(); },
-  async loadAll(){ this.error=''; try{ const s=await apiFetch('/api/one-click/state'); this.state=s.state||{}; this.preflightResult=this.state.last_preflight||{}; this.release=s.state||{}; }catch(e){ this.error=e.message; }},
+  async loadAll(){ this.error=''; try{ const s=await apiFetch('/api/one-click/state'); this.state=s.state||{}; this.preflightResult=this.state.last_preflight||{}; this.release=s.state?.release||this.release||{}; this.lastUpdated=new Date().toISOString(); }catch(e){ this.error=uiFormatError(e); }},
   async loadRelease(){ try{ this.release=await apiFetch('/api/sales-release/state?limit=100'); }catch(e){ /* optional */ } },
-  async discover(){ this.error=''; try{ this.discovery=await apiFetch('/api/one-click/discover',{method:'POST'}); this.notice='Discovery abgeschlossen'; }catch(e){ this.error=e.message; }},
-  async preflight(){ this.error=''; try{ const r=await apiFetch('/api/one-click/preflight',{method:'POST'}); this.preflightResult=r.preflight||{}; this.notice='Preflight abgeschlossen: '+(this.preflightResult.status||'unknown'); await this.loadAll(); await this.loadRelease(); }catch(e){ this.error=e.message; }},
-  async planLaunch(){ this.error=''; this.busy=true; try{ const r=await apiFetch('/api/one-click/plan-launch',{method:'POST', body:JSON.stringify(this.plan)}); this.state=r.state||this.state; this.preflightResult=r.preflight||this.preflightResult; this.notice='Launch geplant: '+(this.state.status||''); }catch(e){ this.error=e.message; } this.busy=false; },
-  async executeDue(){ this.error=''; try{ const r=await apiFetch('/api/one-click/execute-due',{method:'POST'}); this.state=r.state||this.state; this.notice='Execute: '+(r.reason||r.status||'ok'); this.preflightResult=r.preflight||this.preflightResult; }catch(e){ this.error=e.message; }},
-  async salesSelect(){ this.error=''; this.busy=true; try{ const r=await apiFetch('/api/sales-release/select?limit=50&min_score=55',{method:'POST'}); this.notice='KI-Selektion: '+JSON.stringify(r.counts||r.status); await this.loadRelease(); }catch(e){ this.error=e.message; } this.busy=false; },
-  async salesValidate(){ this.error=''; this.busy=true; try{ const r=await apiFetch('/api/sales-release/validate',{method:'POST'}); this.notice='Validierung: '+JSON.stringify({approved:(r.approved||[]).length,blocked:(r.blocked||[]).length}); await this.loadRelease(); }catch(e){ this.error=e.message; } this.busy=false; },
-  async salesImport(){ this.error=''; this.busy=true; try{ const r=await apiFetch('/api/sales-release/import-shopware?limit=50',{method:'POST'}); this.notice='Import: '+JSON.stringify(r.counts||r.status); await this.loadRelease(); }catch(e){ this.error=e.message; } this.busy=false; },
-  async salesStart(){ this.error=''; if(!confirm('START PRODUCTIVE SALES wirklich ausführen? Vorhandene Preflight-Blocker verhindern echten Go-Live.')) return; this.busy=true; try{ const r=await apiFetch('/api/sales-release/start',{method:'POST', body:JSON.stringify({approved:true, confirm:true, mode:'manual'})}); this.notice='Sales Start: '+(r.run_status||r.status); await this.loadAll(); await this.loadRelease(); }catch(e){ this.error=e.message; } this.busy=false; }
+  async discover(){ this.error=''; this.busy=true; try{ this.discovery=await apiFetch('/api/one-click/discover',{method:'POST'}); this.notice='Discovery abgeschlossen'; }catch(e){ this.error=uiFormatError(e); } this.busy=false; },
+  async preflight(){ this.error=''; this.busy=true; try{ const r=await apiFetch('/api/one-click/preflight',{method:'POST'}); this.preflightResult=r.preflight||{}; this.notice='Preflight abgeschlossen: '+uiStatusLabel(this.preflightResult.status||'unknown'); await this.loadAll(); await this.loadRelease(); }catch(e){ this.error=uiFormatError(e); } this.busy=false; },
+  async planLaunch(){ this.error=''; this.busy=true; try{ const r=await apiFetch('/api/one-click/plan-launch',{method:'POST', body:JSON.stringify(this.plan)}); this.state=r.state||this.state; this.preflightResult=r.preflight||this.preflightResult; this.notice='Launch geplant: '+uiStatusLabel(this.state.status||''); }catch(e){ this.error=uiFormatError(e); } this.busy=false; },
+  async executeDue(){ this.error=''; this.busy=true; try{ const r=await apiFetch('/api/one-click/execute-due',{method:'POST'}); this.state=r.state||this.state; this.notice='Execute: '+(r.reason||uiStatusLabel(r.status||'ok')); this.preflightResult=r.preflight||this.preflightResult; }catch(e){ this.error=uiFormatError(e); } this.busy=false; },
+  async salesSelect(){ this.error=''; this.busy=true; try{ const r=await apiFetch('/api/sales-release/select?limit=50&min_score=55',{method:'POST'}); this.notice='KI-Selektion abgeschlossen. Counts: '+JSON.stringify(r.counts||{}); await this.loadRelease(); }catch(e){ this.error=uiFormatError(e); } this.busy=false; },
+  async salesValidate(){ this.error=''; this.busy=true; try{ const r=await apiFetch('/api/sales-release/validate',{method:'POST'}); this.notice='Validierung: '+(r.approved||[]).length+' freigegeben, '+(r.blocked||[]).length+' blockiert'; await this.loadRelease(); }catch(e){ this.error=uiFormatError(e); } this.busy=false; },
+  async salesImport(){ this.error=''; this.busy=true; try{ const r=await apiFetch('/api/sales-release/import-shopware?limit=50',{method:'POST'}); this.notice='Import abgeschlossen. Counts: '+JSON.stringify(r.counts||{}); await this.loadRelease(); }catch(e){ this.error=uiFormatError(e); } this.busy=false; },
+  async salesStart(){ this.error=''; if(this.hasBlockingPreflight()){ this.error='Produktivstart gesperrt: Preflight-Blocker müssen zuerst behoben werden.'; return; }
+    const ok = await uiConfirm({title:'Produktivstart bestätigen', body:'START PRODUCTIVE SALES wirklich ausführen?', details:'Diese Aktion kann produktive Verkaufsprozesse auslösen. Preflight muss grün sein; Payment/Shipping/Legal müssen verifiziert sein.', requireCheck:true, checkLabel:'Ich habe Preflight, Payment, Shipping und Legal geprüft.', danger:true, confirmLabel:'Produktivstart ausführen'});
+    if(!ok) return;
+    this.busy=true; try{ const r=await apiFetch('/api/sales-release/start',{method:'POST', body:JSON.stringify({approved:true, confirm:true, mode:'manual'})}); this.notice='Sales Start: '+uiStatusLabel(r.run_status||r.status); await this.loadAll(); await this.loadRelease(); }catch(e){ this.error=uiFormatError(e); } this.busy=false; }
 }}
 </script>
 {% endblock %}

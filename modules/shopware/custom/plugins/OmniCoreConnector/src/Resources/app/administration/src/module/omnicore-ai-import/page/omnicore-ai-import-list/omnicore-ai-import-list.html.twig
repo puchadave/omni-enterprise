@@ -2,36 +2,46 @@
 <sw-page class="omnicore-ai-import-list">
     <template #smart-bar-header>
         <h2>{{ $tc('omnicore-ai-import.general.mainMenuItemGeneral') }}</h2>
+        <p class="omnicore-ai-import-subtitle">{{ $tc('omnicore-ai-import.general.descriptionTextModule') }}</p>
     </template>
 
     <template #smart-bar-actions>
-        <sw-button :disabled="isLoading" @click="loadCandidates">
-            {{ $tc('omnicore-ai-import.actions.refresh') }}
+        <sw-button :disabled="isLoading" @click="loadCandidates">{{ $tc('omnicore-ai-import.actions.refresh') }}</sw-button>
+        <sw-button :disabled="isLoading || !canUpdate || hasActiveJob" @click="refreshSelection">{{ $tc('omnicore-ai-import.actions.runSelection') }}</sw-button>
+        <sw-button variant="primary" :disabled="isImporting || !canImport || !selectedSkus.length || hasActiveJob" @click="importSelected">
+            {{ $tc('omnicore-ai-import.actions.importSelected') }} ({{ selectedSkus.length }})
         </sw-button>
-        <sw-button :disabled="isLoading || !canUpdate" @click="refreshSelection">
-            {{ $tc('omnicore-ai-import.actions.runSelection') }}
-        </sw-button>
-        <sw-button variant="primary" :disabled="isImporting || !canImport" @click="importSelected">
-            {{ $tc('omnicore-ai-import.actions.importSelected') }}
-        </sw-button>
-        <sw-button variant="ghost" :disabled="isImporting || !canImport" @click="importAllMatching">
+        <sw-button variant="ghost-danger" :disabled="isImporting || !canImport || hasActiveJob" @click="importAllMatching">
             {{ $tc('omnicore-ai-import.actions.importAllMatching') }}
         </sw-button>
     </template>
 
     <template #content>
         <sw-card-view>
+            <sw-alert v-if="!canRead" variant="error" :title="$tc('omnicore-ai-import.messages.noPermissionTitle')">
+                {{ $tc('omnicore-ai-import.messages.noPermission') }}
+            </sw-alert>
+
+            <sw-card :title="$tc('omnicore-ai-import.overview.title')">
+                <sw-container columns="repeat(auto-fit,minmax(180px,1fr))" gap="12px">
+                    <div class="omni-kpi"><div class="omni-kpi__label">{{ $tc('omnicore-ai-import.candidates.total') }}</div><div class="omni-kpi__value">{{ total }}</div></div>
+                    <div class="omni-kpi"><div class="omni-kpi__label">{{ $tc('omnicore-ai-import.overview.selected') }}</div><div class="omni-kpi__value">{{ selectedSkus.length }}</div></div>
+                    <div class="omni-kpi"><div class="omni-kpi__label">{{ $tc('omnicore-ai-import.overview.lastRefresh') }}</div><div class="omni-kpi__value omni-kpi__value--small">{{ formatDate(lastRefreshedAt) }}</div></div>
+                    <div class="omni-kpi"><div class="omni-kpi__label">{{ $tc('omnicore-ai-import.job.status') }}</div><div class="omni-kpi__value omni-kpi__value--small"><sw-label :variant="statusVariant(activeJob?.status)" appearance="pill">{{ statusLabel(activeJob?.status || 'idle') }}</sw-label></div></div>
+                </sw-container>
+            </sw-card>
+
             <sw-card :title="$tc('omnicore-ai-import.filters.title')">
                 <sw-container columns="1fr 1fr 1fr 120px" gap="12px">
                     <sw-text-field v-model:value="filter.search" :label="$tc('omnicore-ai-import.filters.search')" @update:value="loadCandidates" />
                     <sw-select-field v-model:value="filter.status" :label="$tc('omnicore-ai-import.filters.status')" @update:value="loadCandidates">
                         <option value="">{{ $tc('omnicore-ai-import.filters.allStatuses') }}</option>
-                        <option value="AI_SELECTED">AI_SELECTED</option>
-                        <option value="VALIDATED">VALIDATED</option>
-                        <option value="IMPORT_APPROVED">IMPORT_APPROVED</option>
-                        <option value="IMPORTED">IMPORTED</option>
-                        <option value="READY_FOR_SALE">READY_FOR_SALE</option>
-                        <option value="IMPORT_BLOCKED">IMPORT_BLOCKED</option>
+                        <option value="AI_SELECTED">{{ statusLabel('AI_SELECTED') }}</option>
+                        <option value="VALIDATED">{{ statusLabel('VALIDATED') }}</option>
+                        <option value="IMPORT_APPROVED">{{ statusLabel('IMPORT_APPROVED') }}</option>
+                        <option value="IMPORTED">{{ statusLabel('IMPORTED') }}</option>
+                        <option value="READY_FOR_SALE">{{ statusLabel('READY_FOR_SALE') }}</option>
+                        <option value="IMPORT_BLOCKED">{{ statusLabel('IMPORT_BLOCKED') }}</option>
                     </sw-select-field>
                     <sw-number-field v-model:value="filter.minScore" :label="$tc('omnicore-ai-import.filters.minScore')" numberType="float" />
                     <sw-number-field v-model:value="filter.limit" :label="$tc('omnicore-ai-import.filters.limit')" numberType="int" />
@@ -39,26 +49,34 @@
             </sw-card>
 
             <sw-card v-if="activeJob" :title="$tc('omnicore-ai-import.job.title')">
-                <sw-alert :variant="activeJob.status === 'failed' ? 'error' : (activeJob.status === 'completed_with_errors' ? 'warning' : 'info')">
-                    <div><strong>{{ $tc('omnicore-ai-import.job.status') }}:</strong> {{ activeJob.status }}</div>
-                    <div>{{ activeJob.processed_items }} / {{ activeJob.total_items }} processed — {{ activeJob.success_items }} ok, {{ activeJob.failed_items }} failed, {{ activeJob.skipped_items }} skipped</div>
-                    <div v-if="activeJob.error_summary">{{ activeJob.error_summary }}</div>
+                <sw-alert :variant="statusVariant(activeJob.status)" :title="statusLabel(activeJob.status)">
+                    <div>{{ activeJob.processed_items }} / {{ activeJob.total_items }} {{ $tc('omnicore-ai-import.job.processed') }} — {{ activeJob.success_items }} {{ $tc('omnicore-ai-import.job.ok') }}, {{ activeJob.failed_items }} {{ $tc('omnicore-ai-import.job.failed') }}, {{ activeJob.skipped_items }} {{ $tc('omnicore-ai-import.job.skipped') }}</div>
+                    <div v-if="activeJob.error_summary" class="omni-mt">{{ activeJob.error_summary }}</div>
+                    <div class="omni-mt">{{ $tc('omnicore-ai-import.job.progress') }}: {{ jobProgress }}%</div>
                 </sw-alert>
-                <sw-button v-if="activeJob.failed_items > 0 && canImport" :disabled="isImporting" @click="retryFailed">
+                <sw-button v-if="activeJob.failed_items > 0 && canImport" :disabled="isImporting || hasActiveJob" @click="retryFailed">
                     {{ $tc('omnicore-ai-import.actions.retryFailed') }}
                 </sw-button>
 
                 <sw-data-grid
                     v-if="jobItems.length"
                     :dataSource="jobItems"
-                    :columns="[{property:'sku',label:'SKU'},{property:'status',label:'Status'},{property:'middleware_status',label:'Middleware'},{property:'shopware_product_id',label:'Shopware ID'},{property:'error_message',label:'Error'}]"
+                    :columns="[{property:'sku',label:'SKU'},{property:'status',label:$tc('omnicore-ai-import.job.status')},{property:'middleware_status',label:'Middleware'},{property:'shopware_product_id',label:$tc('omnicore-ai-import.columns.shopwareId')},{property:'error_message',label:$tc('omnicore-ai-import.columns.error')}]"
                     :showSelection="false"
                     :showActions="false"
-                />
+                >
+                    <template #column-status="{ item }"><sw-label :variant="statusVariant(item.status)" appearance="pill">{{ statusLabel(item.status) }}</sw-label></template>
+                </sw-data-grid>
             </sw-card>
 
             <sw-card :title="$tc('omnicore-ai-import.candidates.title')">
+                <sw-empty-state
+                    v-if="!isLoading && !candidates.length"
+                    :title="$tc('omnicore-ai-import.empty.title')"
+                    :subline="$tc('omnicore-ai-import.empty.subline')"
+                />
                 <sw-data-grid
+                    v-else
                     :isLoading="isLoading"
                     :dataSource="candidates"
                     :columns="columns"
@@ -67,10 +85,10 @@
                     identifier="sku"
                     @selection-change="onSelectionChange"
                 >
+                    <template #column-lifecycle_status="{ item }"><sw-label :variant="statusVariant(item.lifecycle_status)" appearance="pill">{{ statusLabel(item.lifecycle_status) }}</sw-label></template>
+                    <template #column-last_error="{ item }"><span class="omni-error-cell" :title="item.last_error">{{ item.last_error || '—' }}</span></template>
                     <template #actions="{ item }">
-                        <sw-context-menu-item @click="openDetail(item)">
-                            {{ $tc('omnicore-ai-import.actions.details') }}
-                        </sw-context-menu-item>
+                        <sw-context-menu-item @click="openDetail(item)">{{ $tc('omnicore-ai-import.actions.details') }}</sw-context-menu-item>
                     </template>
                 </sw-data-grid>
                 <div class="omnicore-ai-import-total">{{ $tc('omnicore-ai-import.candidates.total') }}: {{ total }}</div>
@@ -78,16 +96,38 @@
 
             <sw-modal v-if="detailItem" :title="detailItem.sku" @modal-close="closeDetail">
                 <sw-description-list>
-                    <dt>{{ $tc('omnicore-ai-import.columns.title') }}</dt><dd>{{ detailItem.title }}</dd>
+                    <dt>{{ $tc('omnicore-ai-import.columns.title') }}</dt><dd>{{ detailItem.title || '—' }}</dd>
                     <dt>{{ $tc('omnicore-ai-import.columns.score') }}</dt><dd>{{ detailItem.selection_score }}</dd>
-                    <dt>{{ $tc('omnicore-ai-import.columns.status') }}</dt><dd>{{ detailItem.lifecycle_status }}</dd>
-                    <dt>Shopware ID</dt><dd>{{ detailItem.shopware_product_id || '-' }}</dd>
-                    <dt>Reasons</dt><dd><pre>{{ (detailItem.selection_reasons || []).join('\n') }}</pre></dd>
-                    <dt>Validation errors</dt><dd><pre>{{ JSON.stringify(detailItem.validation_errors || [], null, 2) }}</pre></dd>
-                    <dt>Last error</dt><dd><pre>{{ detailItem.last_error || '-' }}</pre></dd>
+                    <dt>{{ $tc('omnicore-ai-import.columns.status') }}</dt><dd><sw-label :variant="statusVariant(detailItem.lifecycle_status)" appearance="pill">{{ statusLabel(detailItem.lifecycle_status) }}</sw-label></dd>
+                    <dt>{{ $tc('omnicore-ai-import.columns.shopwareId') }}</dt><dd>{{ detailItem.shopware_product_id || '—' }}</dd>
+                    <dt>{{ $tc('omnicore-ai-import.detail.reasons') }}</dt><dd><pre class="omni-pre">{{ (detailItem.selection_reasons || []).join('\n') || '—' }}</pre></dd>
+                    <dt>{{ $tc('omnicore-ai-import.detail.validationErrors') }}</dt><dd><pre class="omni-pre">{{ JSON.stringify(detailItem.validation_errors || [], null, 2) }}</pre></dd>
+                    <dt>{{ $tc('omnicore-ai-import.columns.error') }}</dt><dd><pre class="omni-pre">{{ detailItem.last_error || '—' }}</pre></dd>
                 </sw-description-list>
+            </sw-modal>
+
+            <sw-modal v-if="confirmModal.open" :title="confirmModal.title" @modal-close="closeConfirm">
+                <p>{{ confirmModal.body }}</p>
+                <template #modal-footer>
+                    <sw-button @click="closeConfirm">{{ $tc('omnicore-ai-import.actions.cancel') }}</sw-button>
+                    <sw-button variant="danger" @click="confirmAction">{{ confirmModal.confirmLabel }}</sw-button>
+                </template>
             </sw-modal>
         </sw-card-view>
     </template>
 </sw-page>
+{% endblock %}
+
+{% block omnicore_ai_import_list_styles %}
+<style>
+.omnicore-ai-import-subtitle { margin: 4px 0 0; color: #52667a; font-size: 13px; }
+.omni-kpi { background: #f8fafc; border: 1px solid #d1d9e0; border-radius: 8px; padding: 12px; }
+.omni-kpi__label { font-size: 12px; color: #52667a; }
+.omni-kpi__value { font-size: 22px; font-weight: 600; color: #0f172a; }
+.omni-kpi__value--small { font-size: 13px; font-weight: 500; }
+.omni-error-cell { display:block; max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.omni-pre { margin:0; white-space:pre-wrap; word-break:break-word; font-size:12px; background:#f8fafc; border:1px solid #d1d9e0; padding:8px; border-radius:6px; }
+.omnicore-ai-import-total { padding: 12px 0 0; color: #52667a; font-size: 12px; }
+.omni-mt { margin-top: 8px; }
+</style>
 {% endblock %}

@@ -1,62 +1,88 @@
 {% extends "base.html" %}
-{% block title %}Shopware Connector | Omni-Core{% endblock %}
+{% block title %}Shopware Connector | OMNI-CORE{% endblock %}
 {% block content %}
-<div x-data="pageState()" x-init="loadAll()" class="space-y-4 max-w-7xl mx-auto">
-  <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
+<div x-data="shopwarePage()" x-init="loadAll()" class="space-y-4 max-w-[1600px] mx-auto">
+  <div class="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-3">
     <div>
       <h1 class="text-2xl md:text-3xl font-bold">Shopware Connector</h1>
-      <p class="text-slate-400">Verbindungen, Feldmapping, Export/Queue & Sync-Status.</p>
+      <p class="text-slate-400">Verbindungsstatus, Export-Queue und Integrationssignale. Keine Fake-Verbindungen; Status basiert auf Backend-Antworten.</p>
+      <div class="text-xs text-slate-500 mt-1" x-text="lastUpdated ? 'Zuletzt aktualisiert: '+fmtDate(lastUpdated) : ''"></div>
     </div>
-    <button @click="loadAll()" class="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded text-sm">Aktualisieren</button>
+    <div class="flex gap-2"><a href="/ui/settings" class="btn btn-secondary">Einstellungen</a><button @click="loadAll()" class="btn btn-primary" :disabled="loading">Aktualisieren</button></div>
   </div>
 
-  <template x-if="globalError"><div class="rounded border border-red-700 bg-red-900/30 p-3 text-sm text-red-200" x-text="globalError"></div></template>
+  <template x-if="globalError"><div class="banner banner-error"><div class="font-medium">Daten konnten nicht vollständig geladen werden</div><div class="text-sm mt-1" x-text="globalError"></div></div></template>
 
-  <div class="grid lg:grid-cols-2 gap-4">
-    <template x-for="ep in endpoints" :key="ep.url">
-      <div class="bg-slate-900 border border-slate-800 rounded-lg p-4">
-        <div class="flex items-center justify-between mb-2">
-          <h2 class="font-semibold" x-text="ep.label"></h2>
-          <span class="text-xs" :class="ep.state==='ok'?'text-emerald-400':(ep.state==='error'?'text-red-400':(ep.state==='empty'?'text-amber-400':'text-slate-400'))" x-text="ep.state"></span>
-        </div>
-        <div class="text-xs text-slate-500 mb-2" x-text="ep.url"></div>
-        <template x-if="ep.state==='loading'"><div class="text-sm text-slate-400">Lade…</div></template>
-        <template x-if="ep.state==='error'"><div class="text-sm text-red-300" x-text="ep.error"></div></template>
-        <template x-if="ep.state==='empty'"><div class="text-sm text-amber-300">Keine Daten / nicht konfiguriert oder leer.</div></template>
-        <template x-if="ep.state==='ok'"><pre class="text-xs bg-slate-950 border border-slate-800 rounded p-3 overflow-auto max-h-96" x-text="formatData(ep.data)"></pre></template>
+  <div class="grid md:grid-cols-2 xl:grid-cols-4 gap-3">
+    <div class="kpi"><div class="kpi-label">Verbindungen</div><div class="kpi-value" x-text="connections.length"></div><div class="kpi-meta">Konfigurierte Shopware-Connections</div></div>
+    <div class="kpi"><div class="kpi-label">Gesund</div><div class="kpi-value" x-text="connections.filter(c=>isHealthy(c)).length"></div><div class="kpi-meta">Verbindungen mit OK/Healthy-Status</div></div>
+    <div class="kpi"><div class="kpi-label">Export Queue</div><div class="kpi-value" x-text="queue.length"></div><div class="kpi-meta">Sichtbare Queue-Einträge</div></div>
+    <div class="kpi"><div class="kpi-label">Integration</div><div class="kpi-value"><span class="badge" :class="uiBadgeClass(integrationStatus())" x-text="uiStatusLabel(integrationStatus())"></span></div><div class="kpi-meta">Aus /api/integrations/status</div></div>
+  </div>
+
+  <div class="grid xl:grid-cols-2 gap-4">
+    <div class="card p-4">
+      <div class="flex items-center justify-between mb-2"><h2 class="section-title">Verbindungen</h2><span class="text-xs text-slate-500" x-text="connections.length+' Einträge'"></span></div>
+      <div x-show="loading" class="space-y-2"><div class="skeleton h-10 w-full"></div><div class="skeleton h-10 w-full"></div></div>
+      <div class="table-wrap" x-show="!loading">
+        <table class="tbl"><thead><tr><th>Name/ID</th><th>Status</th><th>URL</th><th>Version</th></tr></thead><tbody>
+          <template x-for="c in connections" :key="c.id || c.connection_id || c.name">
+            <tr>
+              <td><div class="font-medium" x-text="c.name || c.connection_id || c.id"></div><div class="text-xs text-slate-500 mono" x-text="c.id || c.connection_id || ''"></div></td>
+              <td><span class="badge" :class="uiBadgeClass(c.status || c.health || c.state)" x-text="uiStatusLabel(c.status || c.health || c.state || 'unknown')"></span></td>
+              <td class="text-xs text-slate-400 break-all" x-text="c.shop_url || c.base_url || c.url || '—'"></td>
+              <td class="text-xs" x-text="c.detected_version || c.shopware_version || '—'"></td>
+            </tr>
+          </template>
+          <tr x-show="!connections.length"><td colspan="99"><div class="empty-state !py-8"><div class="title">Keine Shopware-Verbindung gefunden</div><div class="text-sm">Richten Sie eine Verbindung in den Einstellungen ein oder prüfen Sie die API-Berechtigung.</div><a href="/ui/settings" class="btn btn-primary mt-3">Zu Einstellungen</a></div></td></tr>
+        </tbody></table>
       </div>
-    </template>
+      <details class="mt-3 text-xs text-slate-500"><summary class="cursor-pointer hover:text-slate-300">Technische Details</summary><pre class="mt-2 bg-slate-950 border border-slate-800 rounded p-2 overflow-auto max-h-52" x-text="JSON.stringify(connections,null,2)"></pre></details>
+    </div>
+
+    <div class="card p-4">
+      <div class="flex items-center justify-between mb-2"><h2 class="section-title">Export Queue</h2><span class="text-xs text-slate-500" x-text="queue.length+' Einträge'"></span></div>
+      <div x-show="loading" class="space-y-2"><div class="skeleton h-10 w-full"></div><div class="skeleton h-10 w-full"></div></div>
+      <div class="table-wrap" x-show="!loading">
+        <table class="tbl"><thead><tr><th>ID/SKU</th><th>Status</th><th>Aktualisiert</th><th>Hinweis</th></tr></thead><tbody>
+          <template x-for="q in queue.slice(0,30)" :key="q.id || q.sku || JSON.stringify(q)">
+            <tr>
+              <td class="mono text-xs" x-text="q.sku || q.product_sku || q.id || '—'"></td>
+              <td><span class="badge" :class="uiBadgeClass(q.status)" x-text="uiStatusLabel(q.status||'unknown')"></span></td>
+              <td class="text-xs text-slate-400" x-text="fmtDate(q.updated_at || q.created_at)"></td>
+              <td class="text-xs text-slate-400" x-text="q.error || q.message || '—'"></td>
+            </tr>
+          </template>
+          <tr x-show="!queue.length"><td colspan="99"><div class="empty-state !py-8"><div class="title">Keine Queue-Einträge</div><div class="text-sm">Es wurden keine Export-Queue-Daten zurückgegeben.</div></div></td></tr>
+        </tbody></table>
+      </div>
+      <details class="mt-3 text-xs text-slate-500"><summary class="cursor-pointer hover:text-slate-300">Technische Details</summary><pre class="mt-2 bg-slate-950 border border-slate-800 rounded p-2 overflow-auto max-h-52" x-text="JSON.stringify(queue,null,2)"></pre></details>
+    </div>
+  </div>
+
+  <div class="card p-4">
+    <h2 class="section-title mb-2">Integrationssignal</h2>
+    <div class="flex flex-wrap gap-2 items-center">
+      <span class="badge" :class="uiBadgeClass(integrationStatus())" x-text="uiStatusLabel(integrationStatus())"></span>
+      <span class="text-sm text-slate-400" x-text="integrationHint()"></span>
+    </div>
+    <details class="mt-3 text-xs text-slate-500"><summary class="cursor-pointer hover:text-slate-300">Technische Details</summary><pre class="mt-2 bg-slate-950 border border-slate-800 rounded p-2 overflow-auto max-h-52" x-text="JSON.stringify(integrations,null,2)"></pre></details>
   </div>
 </div>
 {% endblock %}
 {% block scripts %}
 <script>
-function pageState(){
-  return {
-    endpoints: [{url:'/api/shopware/connections',label:'Verbindungen'},{url:'/api/shopware/export/queue',label:'Export Queue'},{url:'/api/integrations/status',label:'Integrationsstatus'}],
-    globalError: '',
-    supplier: 10, calcResult: null,
-    query: '', actionResult: null, busy: false,
-    q:'', status:'',
-    setKey:'', setVal:'', actionMsg:'', actionErr:false,
-    async loadAll(){ this.globalError=''; await Promise.all(this.endpoints.map(e=>this.loadEp(e))); },
-    async loadEp(ep){
-      ep.state='loading'; ep.error=''; ep.data=null;
-      try {
-        const d = await apiFetch(ep.url);
-        ep.data = d;
-        const empty = d==null || (Array.isArray(d) && d.length===0) || (typeof d==='object' && !Array.isArray(d) && Object.keys(d).length===0);
-        ep.state = empty ? 'empty' : 'ok';
-      } catch(e){ ep.state='error'; ep.error=e.message; }
-    },
-    formatData(d){ try{ return JSON.stringify(d, null, 2); }catch(_ ){ return String(d); } },
-    filteredProducts(){ const all = (this.endpoints.find(e=>e.url.startsWith('/api/products'))||{}).data||[]; const q=(this.q||'').toLowerCase(); return (Array.isArray(all)?all:[]).filter(p=>{ if(this.status && String(p.status)!==this.status) return false; if(!q) return true; return [p.sku,p.title,p.ai_title,p.category].some(v=>String(v||'').toLowerCase().includes(q)); }); },
-    orders(){ const all=(this.endpoints.find(e=>e.url.startsWith('/api/orders'))||{}).data||[]; return Array.isArray(all)?all:(all.items||[]); },
-    async calc(){ try{ this.calcResult=await apiFetch('/api/pricing/calculate',{method:'POST',body:JSON.stringify({supplier_price:Number(this.supplier||0)})}); }catch(e){ this.calcResult={error:e.message}; } },
-    async search(){ try{ this.actionResult=await apiFetch('/api/competitor/search',{method:'POST',body:JSON.stringify({query:this.query,limit:10})}); }catch(e){ this.actionResult={error:e.message}; } },
-    async runTrend(){ this.busy=true; try{ this.actionResult=await apiFetch('/api/ai/trend-analysis',{method:'POST'}); }catch(e){ this.actionResult={error:e.message}; } this.busy=false; },
-    async saveSetting(){ this.actionMsg=''; this.actionErr=false; try{ await apiFetch('/api/settings',{method:'POST',body:JSON.stringify({key:this.setKey,value:this.setVal})}); this.actionMsg='Gespeichert.'; await this.loadAll(); }catch(e){ this.actionErr=true; this.actionMsg='Fehler: '+e.message; } }
+function shopwarePage(){return{
+  loading:true, globalError:'', lastUpdated:null, connections:[], queue:[], integrations:{},
+  isHealthy(c){ return ['ok','healthy','connected','active','configured','success'].includes(String(c.status||c.health||c.state||'').toLowerCase()); },
+  integrationStatus(){ const v=this.integrations.shopware; return typeof v==='string'?v:(v?.status||v?.state||'unknown'); },
+  integrationHint(){ const s=String(this.integrationStatus()).toLowerCase(); if(['ok','connected','healthy','configured','active'].includes(s)) return 'Shopware-Integration meldet einen betriebsbereiten Status.'; if(['error','failed','down'].includes(s)) return 'Integration meldet Fehler. Zugangsdaten, URL und Erreichbarkeit prüfen.'; return 'Status nicht eindeutig. Verbindungstest in Einstellungen durchführen.'; },
+  async loadAll(){ this.loading=true; this.globalError=''; const tasks=[['connections','/api/shopware/connections'],['queue','/api/shopware/export/queue'],['integrations','/api/integrations/status']];
+    const results=await Promise.all(tasks.map(async ([k,u])=>{ try{ return [k, await apiFetch(u), null]; }catch(e){ return [k,null,e]; }}));
+    const errs=[];
+    for(const [k,v,e] of results){ if(e){ errs.push(`${k}: ${uiFormatError(e)}`); continue; } if(k==='connections') this.connections=Array.isArray(v)?v:(v.items||v.connections||[]); if(k==='queue') this.queue=Array.isArray(v)?v:(v.items||v.queue||[]); if(k==='integrations') this.integrations=v||{}; }
+    this.globalError=errs.join(' | '); this.lastUpdated=new Date().toISOString(); this.loading=false;
   }
-}
+}}
 </script>
 {% endblock %}
