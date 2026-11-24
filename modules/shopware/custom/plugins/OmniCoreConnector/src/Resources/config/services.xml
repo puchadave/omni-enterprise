@@ -29,7 +29,7 @@
         <service id="OmniCore\Connector\Service\AiImportJobService">
             <argument type="service" id="Doctrine\DBAL\Connection"/>
             <argument type="service" id="OmniCore\Connector\Service\MiddlewareApiClient"/>
-            <argument type="service" id="messenger.bus.shopware"/>
+            <argument type="service" id="messenger.default_bus"/>
         </service>
 
         <service id="OmniCore\Connector\MessageHandler\ProcessAiImportJobHandler">
