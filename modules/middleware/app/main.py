@@ -130,6 +130,7 @@ from services.sales_release_orchestrator import (
     start_sales as mid_start_sales,
     validate_selected as mid_validate_selected,
 )
+from services.shopware_webhook_service import process_shopware_webhook
 from services.competitor_provider import provider_registry
 from services.competitor_matching import ProductMatchingEngine
 from services.competitor_pricing import DynamicPricingEngine
@@ -838,6 +839,7 @@ _INTERNAL_API_KEY_HEADER = "X-Internal-API-Key"
 _INTERNAL_API_EXCLUDED_PATHS = frozenset({"/healthz"})
 _AUTH_EXCLUDED_PATHS = frozenset({"/login", "/api/auth/login", "/api/auth/csrf"})
 _CSRF_EXEMPT_PATHS = frozenset({"/api/auth/login", "/api/auth/csrf"})
+_WEBHOOK_PATH_PREFIXES = ("/api/webhooks/shopware",)
 
 
 def _auth_secret() -> str:
@@ -1040,7 +1042,8 @@ async def security_middleware(request: Request, call_next):
     method = request.method.upper()
     request.state.principal = {"authenticated": False}
 
-    if path in _INTERNAL_API_EXCLUDED_PATHS or path in _AUTH_EXCLUDED_PATHS:
+    is_webhook = any(path == pfx or path.startswith(pfx + "/") for pfx in _WEBHOOK_PATH_PREFIXES)
+    if path in _INTERNAL_API_EXCLUDED_PATHS or path in _AUTH_EXCLUDED_PATHS or is_webhook:
         response = await call_next(request)
         # ensure csrf cookie exists for browser sessions on safe responses to pages
         if method == "GET" and not path.startswith("/api/") and request.cookies.get(SESSION_COOKIE_NAME) and not request.cookies.get(CSRF_COOKIE_NAME):
@@ -2610,6 +2613,20 @@ async def mcc_api_audit(marketplace_id: str = "", product_sku: str = "", limit: 
 
 
 # ---------------------------------------------------------------------------
+# Shopware Webhook Inbound API (signed, idempotent)
+# ---------------------------------------------------------------------------
+
+@app.post("/api/webhooks/shopware/{connection_id}")
+async def shopware_webhook_inbound(connection_id: str, request: Request):
+    raw_body = await request.body()
+    if len(raw_body) > 2_000_000:
+        return JSONResponse(status_code=413, content={"status": "error", "error": "payload_too_large"})
+    headers = {k.lower(): v for k, v in request.headers.items()}
+    status_code, body = await process_shopware_webhook(runtime=runtime, connection_id=connection_id, raw_body=raw_body, headers=headers)
+    return JSONResponse(status_code=status_code, content=body)
+
+
+# ---------------------------------------------------------------------------
 # Shopware Integration API
 # ---------------------------------------------------------------------------
 
@@ -2625,6 +2642,7 @@ class ShopwareConnectionCreate(BaseModel):
     default_tax_rate: float = 19.0
     default_supplier: str = ""
     host_header: str = ""
+    webhook_secret: str = ""
 
 class ShopwareMappingCreate(BaseModel):
     connection_id: str
@@ -2652,6 +2670,8 @@ async def create_shopware_connection(payload: ShopwareConnectionCreate):
         api_version=payload.shopware_version,
         host_header=payload.host_header or None,
     )
+    if payload.webhook_secret:
+        setattr(cm, "webhook_secret", payload.webhook_secret)
     runtime.shopware_connections[conn_id] = cm
     runtime.shopware_mapping_engines[conn_id] = MappingEngine(
         get_default_mappings(conn_id)
@@ -2675,6 +2695,7 @@ async def list_shopware_connections():
             "is_authenticated": cm.is_authenticated,
             "request_count": cm.request_count,
             "error_count": cm.error_count,
+            "webhook_secret_configured": bool(getattr(cm, "webhook_secret", "") or os.getenv("SHOPWARE_WEBHOOK_SECRET", "")),
         })
     return {"status": "ok", "connections": connections}
 

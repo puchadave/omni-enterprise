@@ -1051,6 +1051,27 @@ CREATE TABLE IF NOT EXISTS shopware_connections (
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS shopware_webhook_inbox (
+        id TEXT PRIMARY KEY,
+        connection_id TEXT NOT NULL DEFAULT '',
+        event_name TEXT NOT NULL,
+        source TEXT NOT NULL DEFAULT '',
+        delivery_id TEXT NOT NULL DEFAULT '',
+        idempotency_key TEXT NOT NULL,
+        signature_valid BOOLEAN NOT NULL DEFAULT FALSE,
+        payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        headers_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        status TEXT NOT NULL DEFAULT 'received' CHECK (status IN ('received','processing','processed','duplicate','failed')),
+        error_message TEXT NOT NULL DEFAULT '',
+        correlation_id TEXT NOT NULL DEFAULT '',
+        received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        processed_at TIMESTAMPTZ,
+        UNIQUE(connection_id, idempotency_key)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_shopware_webhook_inbox_status ON shopware_webhook_inbox(status, received_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_shopware_webhook_inbox_event ON shopware_webhook_inbox(event_name, received_at DESC)",
+    """
     CREATE TABLE IF NOT EXISTS competitors (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
@@ -2423,6 +2444,24 @@ CREATE TABLE IF NOT EXISTS shopware_export_queue (
     started_at TEXT,
     completed_at TEXT
 );
+CREATE TABLE IF NOT EXISTS shopware_webhook_inbox (
+    id TEXT PRIMARY KEY,
+    connection_id TEXT NOT NULL DEFAULT '',
+    event_name TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT '',
+    delivery_id TEXT NOT NULL DEFAULT '',
+    idempotency_key TEXT NOT NULL,
+    signature_valid INTEGER NOT NULL DEFAULT 0 CHECK (signature_valid IN (0,1)),
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    headers_json TEXT NOT NULL DEFAULT '{}',
+    status TEXT NOT NULL DEFAULT 'received' CHECK (status IN ('received','processing','processed','duplicate','failed')),
+    error_message TEXT NOT NULL DEFAULT '',
+    correlation_id TEXT NOT NULL DEFAULT '',
+    received_at TEXT NOT NULL,
+    processed_at TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_shopware_webhook_inbox_idem ON shopware_webhook_inbox(connection_id, idempotency_key);
+CREATE INDEX IF NOT EXISTS idx_shopware_webhook_inbox_status ON shopware_webhook_inbox(status, received_at DESC);
 CREATE TABLE IF NOT EXISTS competitors (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -8580,6 +8619,67 @@ async def mcc_overview() -> dict[str, Any]:
         "recent_jobs": jobs[:10],
         "marketplaces": mps,
     }
+
+
+# --- Shopware webhook inbox helpers ---
+
+async def shopware_webhook_inbox_insert(*, connection_id: str, event_name: str, source: str, delivery_id: str, idempotency_key: str, signature_valid: bool, payload: dict[str, Any], headers: dict[str, Any], correlation_id: str) -> dict[str, Any]:
+    now = utc_now()
+    row_id = str(uuid.uuid4())
+    payload_json = _json_dump(payload, {})
+    headers_json = _json_dump(headers, {})
+    if uses_postgres():
+        pool = await get_pg_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """INSERT INTO shopware_webhook_inbox
+                   (id,connection_id,event_name,source,delivery_id,idempotency_key,signature_valid,payload_json,headers_json,status,error_message,correlation_id,received_at)
+                   VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,'received','',$10,NOW())
+                   ON CONFLICT (connection_id, idempotency_key) DO NOTHING
+                   RETURNING *""",
+                row_id, connection_id, event_name, source, delivery_id, idempotency_key, bool(signature_valid), payload_json, headers_json, correlation_id
+            )
+            if row:
+                return {'duplicate': False, 'row': dict(row)}
+            existing = await conn.fetchrow(
+                "SELECT * FROM shopware_webhook_inbox WHERE connection_id=$1 AND idempotency_key=$2",
+                connection_id, idempotency_key
+            )
+            return {'duplicate': True, 'row': dict(existing) if existing else {'idempotency_key': idempotency_key}}
+    async with get_connection() as db:
+        try:
+            await db.execute(
+                """INSERT INTO shopware_webhook_inbox
+                   (id,connection_id,event_name,source,delivery_id,idempotency_key,signature_valid,payload_json,headers_json,status,error_message,correlation_id,received_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,'','',?)""",
+                (row_id, connection_id, event_name, source, delivery_id, idempotency_key, 1 if signature_valid else 0, payload_json, headers_json, 'received', correlation_id, now)
+            )
+            await db.commit()
+            cur = await db.execute("SELECT * FROM shopware_webhook_inbox WHERE id=?", (row_id,))
+            row = await cur.fetchone(); await cur.close()
+            return {'duplicate': False, 'row': dict(row) if row else {'id': row_id}}
+        except Exception:
+            cur = await db.execute("SELECT * FROM shopware_webhook_inbox WHERE connection_id=? AND idempotency_key=?", (connection_id, idempotency_key))
+            row = await cur.fetchone(); await cur.close()
+            return {'duplicate': True, 'row': dict(row) if row else {'idempotency_key': idempotency_key}}
+
+
+async def shopware_webhook_inbox_mark(row_id: str, *, status: str, error_message: str = '') -> None:
+    now = utc_now()
+    if uses_postgres():
+        pool = await get_pg_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE shopware_webhook_inbox SET status=$1, error_message=$2, processed_at=CASE WHEN $1 IN ('processed','failed','duplicate') THEN NOW() ELSE processed_at END WHERE id=$3",
+                status, error_message[:1000], row_id
+            )
+        return
+    async with get_connection() as db:
+        await db.execute(
+            "UPDATE shopware_webhook_inbox SET status=?, error_message=?, processed_at=CASE WHEN ? IN ('processed','failed','duplicate') THEN ? ELSE processed_at END WHERE id=?",
+            (status, error_message[:1000], status, now, row_id)
+        )
+        await db.commit()
 
 
 # --- MID release / sales lifecycle helpers ---
