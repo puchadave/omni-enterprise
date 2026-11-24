@@ -28,10 +28,16 @@ final class MiddlewareWebhookClient
             return ['status' => 'skipped', 'reason' => 'missing_config'];
         }
 
+        $deliveryId = bin2hex(random_bytes(16));
         $envelope = [
+            'contract_version' => '1.0',
             'event' => $eventName,
             'source' => $this->config->getSourceId($salesChannelId),
             'occurred_at' => (new \DateTimeImmutable())->format(DATE_ATOM),
+            'delivery_id' => $deliveryId,
+            'entity' => $payload['entity'] ?? null,
+            'entity_id' => $payload['id'] ?? null,
+            'operation' => $payload['operation'] ?? null,
             'payload' => $payload,
         ];
         $body = json_encode($envelope, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
@@ -41,18 +47,28 @@ final class MiddlewareWebhookClient
 
         $payloadHash = hash('sha256', $body);
         $idempotencyKey = hash('sha256', $eventName . '|' . $payloadHash . '|' . ($payload['id'] ?? ''));
+        $envelope['idempotency_key'] = $idempotencyKey;
+        $body = json_encode($envelope, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if ($body === false) {
+            return ['status' => 'error', 'reason' => 'json_encode_failed'];
+        }
+        $payloadHash = hash('sha256', $body);
         if (!$this->idempotency->begin($idempotencyKey, $eventName, $payloadHash)) {
             return ['status' => 'skipped', 'reason' => 'duplicate', 'idempotency_key' => $idempotencyKey];
         }
 
         $signature = hash_hmac('sha256', $body, $secret);
+        $timestamp = (string) time();
         try {
             $response = $this->httpClient->request('POST', $url, [
                 'headers' => [
                     'Content-Type' => 'application/json',
                     'X-Omni-Event' => $eventName,
+                    'X-Omni-Delivery-Id' => $deliveryId,
                     'X-Omni-Idempotency-Key' => $idempotencyKey,
+                    'X-Omni-Timestamp' => $timestamp,
                     'X-Omni-Signature' => 'sha256=' . $signature,
+                    'X-Correlation-Id' => $deliveryId,
                 ],
                 'body' => $body,
                 'timeout' => $this->config->getTimeoutSeconds($salesChannelId),
