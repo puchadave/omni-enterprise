@@ -98,6 +98,7 @@ services:
       SHOPWARE_ENABLED: ${SHOPWARE_ENABLED:-false}
       ENABLE_EXTERNAL_MARKETPLACES: ${ENABLE_EXTERNAL_MARKETPLACES:-false}
       ENABLE_MATTERHORN_IMPORT: ${ENABLE_MATTERHORN_IMPORT:-true}
+      SHARED_MEDIA_ROOT: ${SHARED_MEDIA_ROOT:-/mnt/local-data/omni-assets}
       MIDDLEWARE_URL: http://middleware:8000
       UVICORN_WORKERS: ${UVICORN_WORKERS:-1}
       UVICORN_LOOP: uvloop
@@ -106,8 +107,9 @@ services:
       - "${SERVICE_BIND_HOST:-0.0.0.0}:${MIDDLEWARE_PORT:-8002}:8000"
     volumes:
       - app_data:/app/data
-      - middleware_media:/app/media
-      - middleware_uploads:/app/uploads
+      - ${MEDIA_PATH:-./runtime/middleware-media}:/app/media
+      - ${UPLOADS_PATH:-./runtime/middleware-uploads}:/app/uploads
+      - ${SHARED_MEDIA_ROOT:-/mnt/local-data/omni-assets}:/app/shared-assets
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8000/healthz || curl -fsS http://127.0.0.1:8000/health >/dev/null || exit 1"]
       interval: 15s

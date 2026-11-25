@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
+PVE_TARGET_STORAGE="${PVE_TARGET_STORAGE:-local-data}"
+SHARED_MEDIA_ROOT="${SHARED_MEDIA_ROOT:-/mnt/local-data/omni-assets}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
