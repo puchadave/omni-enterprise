@@ -23,8 +23,8 @@ class TestDescriptionEnrichmentService(unittest.TestCase):
         result = self.service.enrich(product)
         self.assertEqual(result.title, "Test Product")
         self.assertEqual(result.meta_description, "Test Description")
-        self.assertEqual(result.slug, "test-product")
-        self.assertEqual(result.alt_texts, ["Test Product image 1", "Test Product image 2"])
+        self.assertEqual(result.slug, "apple-test-product-123")
+        self.assertEqual(result.alt_texts, ["Test Product - Ansicht 1", "Test Product - Ansicht 2"])
 
 if __name__ == "__main__":
     unittest.main()
