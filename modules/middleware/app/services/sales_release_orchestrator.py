@@ -323,3 +323,32 @@ async def start_sales(runtime: Any, *, actor: str = "system", mode: str = "manua
     except Exception as e:
         await sales_go_live_run_update(run["id"], status="failed", error_message=str(e)[:500], finished_at=now_iso())
         raise
+
+
+# --- AI enrichment/import decision helpers (phase 2 pipeline contract) ---
+def build_shopware_import_decision(product: Any, media_cover_url: str | None = None):
+    from .enrichment_contracts import ShopwareImportDecision
+
+    blocking_errors = []
+    price_fallback_used = False
+    price = getattr(product, "price", None)
+    if price is None or float(price) <= 0:
+        blocking_errors.append("ERR_INVALID_PRICE")
+        price_fallback_used = True
+    for field in ("sku", "name", "category", "manufacturer"):
+        value = getattr(product, field, None)
+        if value is None or (isinstance(value, str) and not value.strip()):
+            blocking_errors.append("ERR_MISSING_REQUIRED_FIELD")
+    cover_url = media_cover_url or (getattr(product, "images", []) or [None])[0]
+    if not cover_url:
+        blocking_errors.append("ERR_MISSING_COVER_IMAGE")
+    blocking_errors = sorted(set(blocking_errors))
+    approved = len(blocking_errors) == 0
+    return ShopwareImportDecision(
+        active=approved,
+        price_fallback_used=price_fallback_used,
+        blocking_errors=blocking_errors,
+        export_gate="APPROVED" if approved else "BLOCKED",
+        hallucination_blocked=False,
+        cover_url=cover_url,
+    )
