@@ -66,6 +66,34 @@ class MiddlewareApiClient
         return $this->request('POST', '/sales-release/import-shopware', ['json' => ['skus' => array_values($skus), 'limit' => $limit]]);
     }
 
+    /** @param string[] $skus @return array<string,mixed> */
+    public function postShopwareChatPlan(string $prompt, array $skus = []): array
+    {
+        $resp = $this->request('POST', '/shopware/chat/plan', ['json' => ['message' => $prompt, 'skus' => array_values($skus)]]);
+        return is_array($resp['plan'] ?? null) ? $resp['plan'] : $resp;
+    }
+
+    /** @return array<string,mixed> */
+    public function getShopwareChatPlan(string $planId): array
+    {
+        $resp = $this->request('GET', '/shopware/chat/plans/' . rawurlencode($planId));
+        return is_array($resp['plan'] ?? null) ? $resp['plan'] : $resp;
+    }
+
+    /** @return array<string,mixed> */
+    public function executeShopwareChatPlan(string $planId, string $idempotencyKey): array
+    {
+        $resp = $this->request('POST', '/shopware/chat/plans/' . rawurlencode($planId) . '/execute', ['json' => ['idempotency_key' => $idempotencyKey]]);
+        return is_array($resp['plan'] ?? null) ? $resp['plan'] : $resp;
+    }
+
+    /** @return array<string,mixed> */
+    public function rollbackShopwareChatPlan(string $planId): array
+    {
+        $resp = $this->request('POST', '/shopware/chat/plans/' . rawurlencode($planId) . '/rollback', ['json' => []]);
+        return is_array($resp['plan'] ?? null) ? $resp['plan'] : $resp;
+    }
+
     /** @return array<string,mixed> */
     private function request(string $method, string $path, array $options = []): array
     {

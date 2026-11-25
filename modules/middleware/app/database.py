@@ -398,6 +398,88 @@ POSTGRES_SCHEMA: tuple[str, ...] = (
     "CREATE INDEX IF NOT EXISTS idx_marketplace_audit_sku ON marketplace_audit_events(product_sku)",
     "CREATE INDEX IF NOT EXISTS idx_marketplace_audit_created ON marketplace_audit_events(created_at DESC)",
     """
+    CREATE TABLE IF NOT EXISTS marketplace_channel_datasets (
+        id TEXT PRIMARY KEY,
+        product_sku TEXT NOT NULL,
+        channel TEXT NOT NULL,
+        import_run_id TEXT NOT NULL DEFAULT '',
+        facts_hash TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'incomplete',
+        title TEXT NOT NULL DEFAULT '',
+        short_description TEXT NOT NULL DEFAULT '',
+        description TEXT NOT NULL DEFAULT '',
+        seo_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        alt_texts_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+        attributes_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+        category_mapping_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        price_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        images_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+        validation_errors_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+        warnings_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+        ai_model TEXT NOT NULL DEFAULT '',
+        prompt_version TEXT NOT NULL DEFAULT '',
+        source_hash TEXT NOT NULL DEFAULT '',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(product_sku, channel)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_marketplace_channel_datasets_sku ON marketplace_channel_datasets(product_sku)",
+    "CREATE INDEX IF NOT EXISTS idx_marketplace_channel_datasets_channel ON marketplace_channel_datasets(channel)",
+    "CREATE INDEX IF NOT EXISTS idx_marketplace_channel_datasets_status ON marketplace_channel_datasets(status)",
+    """
+    CREATE TABLE IF NOT EXISTS workflow_runs (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL DEFAULT '',
+        actor TEXT NOT NULL DEFAULT '',
+        intent TEXT NOT NULL DEFAULT '',
+        summary TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'planned',
+        plan_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        result_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        error_message TEXT NOT NULL DEFAULT '',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        started_at TIMESTAMPTZ,
+        finished_at TIMESTAMPTZ
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_workflow_runs_status ON workflow_runs(status)",
+    "CREATE INDEX IF NOT EXISTS idx_workflow_runs_created ON workflow_runs(created_at DESC)",
+    """
+    CREATE TABLE IF NOT EXISTS workflow_run_steps (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        step_index INTEGER NOT NULL DEFAULT 0,
+        action TEXT NOT NULL,
+        params_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        depends_on_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+        status TEXT NOT NULL DEFAULT 'pending',
+        requires_confirmation BOOLEAN NOT NULL DEFAULT FALSE,
+        guardrails_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        result_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        error_message TEXT NOT NULL DEFAULT '',
+        started_at TIMESTAMPTZ,
+        finished_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_workflow_run_steps_run ON workflow_run_steps(run_id)",
+    "CREATE INDEX IF NOT EXISTS idx_workflow_run_steps_status ON workflow_run_steps(status)",
+    """
+    CREATE TABLE IF NOT EXISTS workflow_templates (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        trigger_examples_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+        plan_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_by TEXT NOT NULL DEFAULT '',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
+    """
     CREATE TABLE IF NOT EXISTS import_runs (
         id BIGSERIAL PRIMARY KEY,
         source TEXT NOT NULL,
@@ -2293,6 +2375,80 @@ CREATE TABLE IF NOT EXISTS marketplace_audit_events (
 CREATE INDEX IF NOT EXISTS idx_marketplace_audit_mp ON marketplace_audit_events(marketplace_id);
 CREATE INDEX IF NOT EXISTS idx_marketplace_audit_sku ON marketplace_audit_events(product_sku);
 CREATE INDEX IF NOT EXISTS idx_marketplace_audit_created ON marketplace_audit_events(created_at DESC);
+CREATE TABLE IF NOT EXISTS marketplace_channel_datasets (
+    id TEXT PRIMARY KEY,
+    product_sku TEXT NOT NULL,
+    channel TEXT NOT NULL,
+    import_run_id TEXT NOT NULL DEFAULT '',
+    facts_hash TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'incomplete',
+    title TEXT NOT NULL DEFAULT '',
+    short_description TEXT NOT NULL DEFAULT '',
+    description TEXT NOT NULL DEFAULT '',
+    seo_json TEXT NOT NULL DEFAULT '{}',
+    alt_texts_json TEXT NOT NULL DEFAULT '[]',
+    attributes_json TEXT NOT NULL DEFAULT '[]',
+    category_mapping_json TEXT NOT NULL DEFAULT '{}',
+    price_json TEXT NOT NULL DEFAULT '{}',
+    images_json TEXT NOT NULL DEFAULT '[]',
+    validation_errors_json TEXT NOT NULL DEFAULT '[]',
+    warnings_json TEXT NOT NULL DEFAULT '[]',
+    ai_model TEXT NOT NULL DEFAULT '',
+    prompt_version TEXT NOT NULL DEFAULT '',
+    source_hash TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(product_sku, channel)
+);
+CREATE INDEX IF NOT EXISTS idx_marketplace_channel_datasets_sku ON marketplace_channel_datasets(product_sku);
+CREATE INDEX IF NOT EXISTS idx_marketplace_channel_datasets_channel ON marketplace_channel_datasets(channel);
+CREATE INDEX IF NOT EXISTS idx_marketplace_channel_datasets_status ON marketplace_channel_datasets(status);
+CREATE TABLE IF NOT EXISTS workflow_runs (
+    id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL DEFAULT '',
+    actor TEXT NOT NULL DEFAULT '',
+    intent TEXT NOT NULL DEFAULT '',
+    summary TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'planned',
+    plan_json TEXT NOT NULL DEFAULT '{}',
+    result_json TEXT NOT NULL DEFAULT '{}',
+    error_message TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    started_at TEXT NOT NULL DEFAULT '',
+    finished_at TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_workflow_runs_status ON workflow_runs(status);
+CREATE INDEX IF NOT EXISTS idx_workflow_runs_created ON workflow_runs(created_at DESC);
+CREATE TABLE IF NOT EXISTS workflow_run_steps (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    step_index INTEGER NOT NULL DEFAULT 0,
+    action TEXT NOT NULL,
+    params_json TEXT NOT NULL DEFAULT '{}',
+    depends_on_json TEXT NOT NULL DEFAULT '[]',
+    status TEXT NOT NULL DEFAULT 'pending',
+    requires_confirmation INTEGER NOT NULL DEFAULT 0,
+    guardrails_json TEXT NOT NULL DEFAULT '{}',
+    result_json TEXT NOT NULL DEFAULT '{}',
+    error_message TEXT NOT NULL DEFAULT '',
+    started_at TEXT NOT NULL DEFAULT '',
+    finished_at TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_workflow_run_steps_run ON workflow_run_steps(run_id);
+CREATE INDEX IF NOT EXISTS idx_workflow_run_steps_status ON workflow_run_steps(status);
+CREATE TABLE IF NOT EXISTS workflow_templates (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    trigger_examples_json TEXT NOT NULL DEFAULT '[]',
+    plan_json TEXT NOT NULL DEFAULT '{}',
+    created_by TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS import_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     source TEXT NOT NULL,
@@ -8867,3 +9023,230 @@ async def release_state_get(key: str) -> dict[str, Any] | None:
         return dict(row) if row else None
     async with get_connection() as db:
         cur=await db.execute("SELECT * FROM release_state WHERE key=?", (key,)); row=await cur.fetchone(); await cur.close(); return dict(row) if row else None
+
+
+# ── Marketplace channel datasets (AI enrichment output) ─────────────────────
+
+async def marketplace_dataset_upsert(data: dict[str, Any]) -> dict[str, Any]:
+    import uuid as _uuid
+    sku = str(data.get("product_sku") or data.get("sku") or "").strip()
+    channel = str(data.get("channel") or "").strip().lower()
+    if not sku or not channel:
+        raise ValueError("product_sku and channel required")
+    did = str(data.get("id") or _uuid.uuid4())
+    now = utc_now()
+    seo_json = _json_dump(data.get("seo") or data.get("seo_json") or {}, {})
+    alt_json = _json_dump(data.get("alt_texts") or data.get("alt_texts_json") or [], [])
+    attrs_json = _json_dump(data.get("attributes") or data.get("attributes_json") or [], [])
+    cat_json = _json_dump(data.get("category_mapping") or data.get("category_mapping_json") or {}, {})
+    price_json = _json_dump(data.get("price_json") or {"price": data.get("price"), "currency": data.get("currency", "EUR")}, {})
+    images_json = _json_dump(data.get("images") or data.get("images_json") or [], [])
+    val_json = _json_dump(data.get("validation_errors") or data.get("validation_errors_json") or [], [])
+    warn_json = _json_dump(data.get("warnings") or data.get("warnings_json") or [], [])
+    status = str(data.get("status") or "incomplete")
+    title = str(data.get("title") or "")[:500]
+    short_description = str(data.get("short_description") or "")[:1000]
+    description = str(data.get("description") or "")
+    facts_hash = str(data.get("facts_hash") or "")
+    import_run_id = str(data.get("import_run_id") or "")
+    ai_model = str(data.get("ai_model") or "")
+    prompt_version = str(data.get("prompt_version") or "")
+    source_hash = str(data.get("source_hash") or facts_hash)
+    if uses_postgres():
+        pool = await get_pg_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """INSERT INTO marketplace_channel_datasets(id,product_sku,channel,import_run_id,facts_hash,status,title,short_description,description,seo_json,alt_texts_json,attributes_json,category_mapping_json,price_json,images_json,validation_errors_json,warnings_json,ai_model,prompt_version,source_hash,created_at,updated_at)
+                   VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,$12::jsonb,$13::jsonb,$14::jsonb,$15::jsonb,$16::jsonb,$17::jsonb,$18,$19,$20,NOW(),NOW())
+                   ON CONFLICT(product_sku,channel) DO UPDATE SET import_run_id=EXCLUDED.import_run_id,facts_hash=EXCLUDED.facts_hash,status=EXCLUDED.status,title=EXCLUDED.title,short_description=EXCLUDED.short_description,description=EXCLUDED.description,seo_json=EXCLUDED.seo_json,alt_texts_json=EXCLUDED.alt_texts_json,attributes_json=EXCLUDED.attributes_json,category_mapping_json=EXCLUDED.category_mapping_json,price_json=EXCLUDED.price_json,images_json=EXCLUDED.images_json,validation_errors_json=EXCLUDED.validation_errors_json,warnings_json=EXCLUDED.warnings_json,ai_model=EXCLUDED.ai_model,prompt_version=EXCLUDED.prompt_version,source_hash=EXCLUDED.source_hash,updated_at=NOW()""",
+                did, sku, channel, import_run_id, facts_hash, status, title, short_description, description, seo_json, alt_json, attrs_json, cat_json, price_json, images_json, val_json, warn_json, ai_model, prompt_version, source_hash,
+            )
+            row = await conn.fetchrow("SELECT * FROM marketplace_channel_datasets WHERE product_sku=$1 AND channel=$2", sku, channel)
+        return dict(row) if row else {"id": did, "product_sku": sku, "channel": channel}
+    async with get_connection() as db:
+        await db.execute(
+            """INSERT INTO marketplace_channel_datasets(id,product_sku,channel,import_run_id,facts_hash,status,title,short_description,description,seo_json,alt_texts_json,attributes_json,category_mapping_json,price_json,images_json,validation_errors_json,warnings_json,ai_model,prompt_version,source_hash,created_at,updated_at)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+               ON CONFLICT(product_sku,channel) DO UPDATE SET import_run_id=excluded.import_run_id,facts_hash=excluded.facts_hash,status=excluded.status,title=excluded.title,short_description=excluded.short_description,description=excluded.description,seo_json=excluded.seo_json,alt_texts_json=excluded.alt_texts_json,attributes_json=excluded.attributes_json,category_mapping_json=excluded.category_mapping_json,price_json=excluded.price_json,images_json=excluded.images_json,validation_errors_json=excluded.validation_errors_json,warnings_json=excluded.warnings_json,ai_model=excluded.ai_model,prompt_version=excluded.prompt_version,source_hash=excluded.source_hash,updated_at=excluded.updated_at""",
+            (did, sku, channel, import_run_id, facts_hash, status, title, short_description, description, seo_json, alt_json, attrs_json, cat_json, price_json, images_json, val_json, warn_json, ai_model, prompt_version, source_hash, now, now),
+        )
+        await db.commit()
+        cur = await db.execute("SELECT * FROM marketplace_channel_datasets WHERE product_sku=? AND channel=?", (sku, channel))
+        row = await cur.fetchone(); await cur.close()
+        return dict(row) if row else {"id": did, "product_sku": sku, "channel": channel}
+
+
+async def marketplace_dataset_list(*, sku: str | None = None, channel: str | None = None, status: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
+    limit = min(max(limit, 1), 1000)
+    if uses_postgres():
+        pool = await get_pg_pool()
+        q = "SELECT * FROM marketplace_channel_datasets WHERE 1=1"; args=[]; i=1
+        if sku: q += f" AND product_sku=${i}"; args.append(sku); i+=1
+        if channel: q += f" AND channel=${i}"; args.append(str(channel).lower()); i+=1
+        if status: q += f" AND status=${i}"; args.append(status); i+=1
+        q += f" ORDER BY updated_at DESC LIMIT ${i}"; args.append(limit)
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(q, *args)
+        return [dict(r) for r in rows]
+    async with get_connection() as db:
+        q = "SELECT * FROM marketplace_channel_datasets WHERE 1=1"; args=[]
+        if sku: q += " AND product_sku=?"; args.append(sku)
+        if channel: q += " AND channel=?"; args.append(str(channel).lower())
+        if status: q += " AND status=?"; args.append(status)
+        q += " ORDER BY updated_at DESC LIMIT ?"; args.append(limit)
+        cur = await db.execute(q, tuple(args))
+        rows = await cur.fetchall(); await cur.close()
+        return [dict(r) for r in rows]
+
+
+# ── Workflow engine persistence ──────────────────────────────────────────────
+
+async def workflow_run_create(data: dict[str, Any]) -> dict[str, Any]:
+    import uuid as _uuid
+    rid = str(data.get("id") or _uuid.uuid4())
+    now = utc_now()
+    plan_json = _json_dump(data.get("plan") or data.get("plan_json") or {}, {})
+    result_json = _json_dump(data.get("result") or data.get("result_json") or {}, {})
+    if uses_postgres():
+        pool = await get_pg_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """INSERT INTO workflow_runs(id,conversation_id,actor,intent,summary,status,plan_json,result_json,error_message,created_at,updated_at,started_at,finished_at)
+                   VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9,NOW(),NOW(),$10::timestamptz,$11::timestamptz)""",
+                rid, str(data.get("conversation_id") or ""), str(data.get("actor") or ""), str(data.get("intent") or ""), str(data.get("summary") or ""), str(data.get("status") or "planned"), plan_json, result_json, str(data.get("error_message") or ""), data.get("started_at"), data.get("finished_at"),
+            )
+            row = await conn.fetchrow("SELECT * FROM workflow_runs WHERE id=$1", rid)
+        return dict(row) if row else {"id": rid}
+    async with get_connection() as db:
+        await db.execute(
+            "INSERT INTO workflow_runs(id,conversation_id,actor,intent,summary,status,plan_json,result_json,error_message,created_at,updated_at,started_at,finished_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (rid, str(data.get("conversation_id") or ""), str(data.get("actor") or ""), str(data.get("intent") or ""), str(data.get("summary") or ""), str(data.get("status") or "planned"), plan_json, result_json, str(data.get("error_message") or ""), now, now, str(data.get("started_at") or ""), str(data.get("finished_at") or "")),
+        )
+        await db.commit(); cur=await db.execute("SELECT * FROM workflow_runs WHERE id=?", (rid,)); row=await cur.fetchone(); await cur.close(); return dict(row) if row else {"id": rid}
+
+
+async def workflow_run_get(run_id: str) -> dict[str, Any] | None:
+    if uses_postgres():
+        pool = await get_pg_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT * FROM workflow_runs WHERE id=$1", run_id)
+        return dict(row) if row else None
+    async with get_connection() as db:
+        cur = await db.execute("SELECT * FROM workflow_runs WHERE id=?", (run_id,))
+        row = await cur.fetchone(); await cur.close(); return dict(row) if row else None
+
+
+async def workflow_run_update(run_id: str, **fields: Any) -> dict[str, Any] | None:
+    allowed = {"status","summary","plan_json","result_json","error_message","started_at","finished_at","intent"}
+    data = {k: v for k, v in fields.items() if k in allowed}
+    if "plan_json" in data and not isinstance(data["plan_json"], str): data["plan_json"] = _json_dump(data["plan_json"], {})
+    if "result_json" in data and not isinstance(data["result_json"], str): data["result_json"] = _json_dump(data["result_json"], {})
+    if not data: return await workflow_run_get(run_id)
+    if uses_postgres():
+        pool = await get_pg_pool(); sets=[]; args=[]
+        for k,v in data.items():
+            args.append(v); cast='::jsonb' if k.endswith('_json') else ('::timestamptz' if k.endswith('_at') else ''); sets.append(f"{k}=${len(args)}{cast}")
+        args.append(run_id)
+        async with pool.acquire() as conn:
+            await conn.execute(f"UPDATE workflow_runs SET {', '.join(sets)}, updated_at=NOW() WHERE id=${len(args)}", *args)
+            row = await conn.fetchrow("SELECT * FROM workflow_runs WHERE id=$1", run_id)
+        return dict(row) if row else None
+    async with get_connection() as db:
+        sets=[]; args=[]
+        for k,v in data.items(): sets.append(f"{k}=?"); args.append(v)
+        args.extend([utc_now(), run_id])
+        await db.execute(f"UPDATE workflow_runs SET {', '.join(sets)}, updated_at=? WHERE id=?", tuple(args))
+        await db.commit(); return await workflow_run_get(run_id)
+
+
+async def workflow_step_create(run_id: str, index: int, step: dict[str, Any]) -> dict[str, Any]:
+    import uuid as _uuid
+    sid = str(step.get("id") or _uuid.uuid4())
+    now = utc_now()
+    if uses_postgres():
+        pool = await get_pg_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """INSERT INTO workflow_run_steps(id,run_id,step_index,action,params_json,depends_on_json,status,requires_confirmation,guardrails_json,result_json,error_message,created_at,updated_at)
+                   VALUES($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,$8,$9::jsonb,$10::jsonb,$11,NOW(),NOW())""",
+                sid, run_id, index, str(step.get("action") or ""), _json_dump(step.get("params") or {}, {}), _json_dump(step.get("depends_on") or [], []), str(step.get("status") or "pending"), bool(step.get("requires_confirmation")), _json_dump(step.get("guardrails") or {}, {}), _json_dump(step.get("result") or {}, {}), str(step.get("error_message") or ""),
+            )
+            row = await conn.fetchrow("SELECT * FROM workflow_run_steps WHERE id=$1", sid)
+        return dict(row) if row else {"id": sid}
+    async with get_connection() as db:
+        await db.execute(
+            "INSERT INTO workflow_run_steps(id,run_id,step_index,action,params_json,depends_on_json,status,requires_confirmation,guardrails_json,result_json,error_message,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (sid, run_id, index, str(step.get("action") or ""), _json_dump(step.get("params") or {}, {}), _json_dump(step.get("depends_on") or [], []), str(step.get("status") or "pending"), 1 if step.get("requires_confirmation") else 0, _json_dump(step.get("guardrails") or {}, {}), _json_dump(step.get("result") or {}, {}), str(step.get("error_message") or ""), now, now),
+        )
+        await db.commit(); cur=await db.execute("SELECT * FROM workflow_run_steps WHERE id=?", (sid,)); row=await cur.fetchone(); await cur.close(); return dict(row) if row else {"id": sid}
+
+
+async def workflow_steps_list(run_id: str) -> list[dict[str, Any]]:
+    if uses_postgres():
+        pool = await get_pg_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch("SELECT * FROM workflow_run_steps WHERE run_id=$1 ORDER BY step_index ASC", run_id)
+        return [dict(r) for r in rows]
+    async with get_connection() as db:
+        cur = await db.execute("SELECT * FROM workflow_run_steps WHERE run_id=? ORDER BY step_index ASC", (run_id,))
+        rows = await cur.fetchall(); await cur.close(); return [dict(r) for r in rows]
+
+
+async def workflow_step_update(step_id: str, **fields: Any) -> dict[str, Any] | None:
+    allowed = {"status","result_json","error_message","started_at","finished_at"}
+    data = {k: v for k, v in fields.items() if k in allowed}
+    if "result_json" in data and not isinstance(data["result_json"], str): data["result_json"] = _json_dump(data["result_json"], {})
+    if not data: return None
+    if uses_postgres():
+        pool = await get_pg_pool(); sets=[]; args=[]
+        for k,v in data.items():
+            args.append(v); cast='::jsonb' if k.endswith('_json') else ('::timestamptz' if k.endswith('_at') else ''); sets.append(f"{k}=${len(args)}{cast}")
+        args.append(step_id)
+        async with pool.acquire() as conn:
+            await conn.execute(f"UPDATE workflow_run_steps SET {', '.join(sets)}, updated_at=NOW() WHERE id=${len(args)}", *args)
+            row = await conn.fetchrow("SELECT * FROM workflow_run_steps WHERE id=$1", step_id)
+        return dict(row) if row else None
+    async with get_connection() as db:
+        sets=[]; args=[]
+        for k,v in data.items(): sets.append(f"{k}=?"); args.append(v)
+        args.extend([utc_now(), step_id])
+        await db.execute(f"UPDATE workflow_run_steps SET {', '.join(sets)}, updated_at=? WHERE id=?", tuple(args))
+        await db.commit(); cur=await db.execute("SELECT * FROM workflow_run_steps WHERE id=?", (step_id,)); row=await cur.fetchone(); await cur.close(); return dict(row) if row else None
+
+
+async def workflow_template_upsert(data: dict[str, Any]) -> dict[str, Any]:
+    import uuid as _uuid
+    tid = str(data.get("id") or _uuid.uuid4())
+    now = utc_now()
+    if uses_postgres():
+        pool = await get_pg_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """INSERT INTO workflow_templates(id,name,description,trigger_examples_json,plan_json,created_by,created_at,updated_at)
+                   VALUES($1,$2,$3,$4::jsonb,$5::jsonb,$6,NOW(),NOW())
+                   ON CONFLICT(id) DO UPDATE SET name=EXCLUDED.name,description=EXCLUDED.description,trigger_examples_json=EXCLUDED.trigger_examples_json,plan_json=EXCLUDED.plan_json,updated_at=NOW()""",
+                tid, str(data.get("name") or "Workflow"), str(data.get("description") or ""), _json_dump(data.get("trigger_examples") or [], []), _json_dump(data.get("plan") or {}, {}), str(data.get("created_by") or ""),
+            )
+            row = await conn.fetchrow("SELECT * FROM workflow_templates WHERE id=$1", tid)
+        return dict(row) if row else {"id": tid}
+    async with get_connection() as db:
+        await db.execute(
+            """INSERT INTO workflow_templates(id,name,description,trigger_examples_json,plan_json,created_by,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)
+               ON CONFLICT(id) DO UPDATE SET name=excluded.name,description=excluded.description,trigger_examples_json=excluded.trigger_examples_json,plan_json=excluded.plan_json,updated_at=excluded.updated_at""",
+            (tid, str(data.get("name") or "Workflow"), str(data.get("description") or ""), _json_dump(data.get("trigger_examples") or [], []), _json_dump(data.get("plan") or {}, {}), str(data.get("created_by") or ""), now, now),
+        )
+        await db.commit(); cur=await db.execute("SELECT * FROM workflow_templates WHERE id=?", (tid,)); row=await cur.fetchone(); await cur.close(); return dict(row) if row else {"id": tid}
+
+
+async def workflow_templates_list(limit: int = 100) -> list[dict[str, Any]]:
+    limit = min(max(limit, 1), 500)
+    if uses_postgres():
+        pool = await get_pg_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch("SELECT * FROM workflow_templates ORDER BY updated_at DESC LIMIT $1", limit)
+        return [dict(r) for r in rows]
+    async with get_connection() as db:
+        cur = await db.execute("SELECT * FROM workflow_templates ORDER BY updated_at DESC LIMIT ?", (limit,))
+        rows = await cur.fetchall(); await cur.close()
+        return [dict(r) for r in rows]
+

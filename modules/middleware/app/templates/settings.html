@@ -119,7 +119,7 @@ function settingsPage(){return{
   saving:false, error:'', banner:'', bannerErr:false,
   groups:[
     {id:'core', title:'KI & Modell-Gateway (OmniRoute)', help:'Schnellstart: nur Gateway-Adresse auswählen/eintragen und API-Key speichern – alle Modell-/Auto-Kombo-Konfigurationen (auto/smart, omnicore-* inkl. Fotoshooting-Identitäten) sind bereits vorkonfiguriert. Alternativ kann der KI-Copilot die Verbindung über die Agenten-Funktion einrichten (mit Bestätigung).', fields:[
-      {key:'omniroute_url', label:'Gateway-Adresse (URL)', placeholder:'https://puchalla.online/v1', help:'Wähle lokal oder öffentlich oder trage eine eigene Adresse ein. Lokal: http://localhost:20128/v1 · Öffentlich: https://puchalla.online/v1', quickUrls:['https://puchalla.online/v1','http://localhost:20128/v1']},
+      {key:'omniroute_url', label:'Gateway-Adresse (URL)', placeholder:'https://dein-gateway.example/v1', help:'Wähle lokal oder öffentlich oder trage eine eigene Adresse ein. Lokal: http://localhost:20128/v1 · Öffentlich: https://<dein-gateway>/v1', quickUrls:['/v1','http://omniroute:20128/v1']},
       {key:'omniroute_api_key', label:'Gateway-Zugangsschlüssel (API-Key)', secret:true, placeholder:'API-Key', help:'Einziger Pflichtwert – danach „Speichern“, der Rest ist vorbelegt.'},
       {key:'omniroute_agent_model', label:'Copilot-/Agent-Modell (vorkonfiguriert)', placeholder:'omnicore-copilot', help:'Vorbelegt: omnicore-copilot (auto/smart).', modelList:true},
       {key:'default_llm_model', label:'Standard-Sprachmodell (vorkonfiguriert)', placeholder:'auto/smart', help:'Vorbelegt: auto/smart.', modelList:true},
@@ -141,12 +141,12 @@ function settingsPage(){return{
       {key:'omniroute_combo_config_path', label:'Combo-Konfigurationsdatei (Server)', placeholder:'config/omniroute/omnicore-auto-combos.json', full:true, help:'Vordefinierte omnicore-auto-Kombos auf dem Middleware-Server.'},
     ]},
     {id:'matterhorn', title:'Lieferant / Produktimport (Matterhorn)', help:'Quelle für Produktdaten-Importe. Geben Sie eine echte, erreichbare Feed-Adresse an.', fields:[
-      {key:'matterhorn_feed_url', label:'Feed-Adresse (URL)', placeholder:'https://…/export.xml', full:true, help:'Öffentliche oder autorisierte Adresse des Lieferanten-Feeds.'},
+      {key:'matterhorn_feed_url', label:'Feed-Adresse (URL)', placeholder:'https://lieferant.example/export.xml', full:true, help:'Öffentliche oder autorisierte Adresse des Lieferanten-Feeds.'},
       {key:'matterhorn_api_token', label:'Zugriffstoken (falls erforderlich)', secret:true, placeholder:'Token', help:'Optionales geheimes Token für geschützte Feeds.'},
       {key:'matterhorn_default_margin', label:'Standard-Aufschlag (%)', placeholder:'30', help:'Prozentualer Aufschlag, der bei Import/Kalkulation als Standard verwendet werden kann.'},
     ]},
     {id:'shopware', title:'Shopware-Shop', help:'Anbindung Ihres Shopware-Systems für Synchronisation und Export.', fields:[
-      {key:'shopware_url', label:'Shop-Adresse (URL)', placeholder:'https://shop.beispiel.de', help:'Basis-URL Ihres Shopware-Shops.'},
+      {key:'shopware_url', label:'Shop-Adresse (URL)', placeholder:'https://shop.example.de', help:'Basis-URL Ihres Shopware-Shops.'},
       {key:'shopware_access_token', label:'Shopware-Zugangsschlüssel', secret:true, help:'API-Zugangsschlüssel aus Shopware (Integrationen).'},
       {key:'shopware_sales_channel_id', label:'Vertriebskanal-ID', placeholder:'ID des Verkaufskanals', help:'Kennung des Sales Channels in Shopware.'},
     ]},
@@ -157,16 +157,16 @@ function settingsPage(){return{
       {key:'marketplace_sync_enabled', label:'Marktplatz-Synchronisation', type:'select', options:[{value:'true',label:'Aktiv'},{value:'false',label:'Inaktiv'}], help:'Steuert, ob konfigurierte Marktplätze synchronisiert werden.'},
     ]},
     {id:'crm', title:'Kommunikation (E-Mail & Messenger)', help:'Einstellungen für den einheitlichen Posteingang und Versand. Versand/Empfang nur bei korrekter Konfiguration.', fields:[
-      {key:'email_imap_host', label:'E-Mail-Empfang (IMAP-Server)', placeholder:'imap.beispiel.de', help:'Server zum Abrufen eingehender E-Mails.'},
-      {key:'email_username', label:'E-Mail-Benutzername', placeholder:'support@beispiel.de'},
+      {key:'email_imap_host', label:'E-Mail-Empfang (IMAP-Server)', placeholder:'imap.example.de', help:'Server zum Abrufen eingehender E-Mails.'},
+      {key:'email_username', label:'E-Mail-Benutzername', placeholder:'support@example.de'},
       {key:'email_password', label:'E-Mail-Passwort', secret:true},
-      {key:'smtp_host', label:'E-Mail-Versand (SMTP-Server)', placeholder:'smtp.beispiel.de', help:'Server zum Versenden von E-Mails.'},
+      {key:'smtp_host', label:'E-Mail-Versand (SMTP-Server)', placeholder:'smtp.example.de', help:'Server zum Versenden von E-Mails.'},
       {key:'smtp_user', label:'SMTP-Benutzername', placeholder:''},
       {key:'smtp_password', label:'SMTP-Passwort', secret:true},
       {key:'messenger_page_token', label:'Messenger-Seiten-Token', secret:true, help:'Geheimer Token für die Messenger-Anbindung.'},
     ]},
     {id:'ops', title:'Betrieb & Sicherheit', help:'Allgemeine Systemeinstellungen. Sicherheits- und Zahlungsregeln (z. B. Fulfillment-Sperre bei unbezahlten Bestellungen) können hier nicht umgangen werden.', fields:[
-      {key:'public_base_url', label:'Öffentliche Basis-URL', placeholder:'https://…', full:true, help:'Adresse, unter der dieses System erreichbar ist (für Links/Rückmeldungen).'},
+      {key:'public_base_url', label:'Öffentliche Basis-URL', placeholder:'https://example.de', full:true, help:'Adresse, unter der dieses System erreichbar ist (für Links/Rückmeldungen).'},
       {key:'log_level', label:'Protokollierungsstufe', type:'select', options:[{value:'INFO',label:'Normal (Info)'},{value:'WARNING',label:'Warnungen'},{value:'ERROR',label:'Nur Fehler'},{value:'DEBUG',label:'Detailliert (Debug)'}], help:'Bestimmt, wie ausführlich Systemereignisse protokolliert werden.'},
       {key:'feature_scene_intelligence', label:'Szenen-Analyse (Scene Intelligence)', type:'select', options:[{value:'true',label:'Aktiv'},{value:'false',label:'Inaktiv'}], help:'Aktiviert Auswertung und Anzeige gespeicherter Szenen-Daten. Es werden keine externen Daten erfunden.'},
     ]},

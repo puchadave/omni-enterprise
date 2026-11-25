@@ -156,19 +156,24 @@
       </div>
       <button type="button" onclick="toggleAIAgent()" class="text-slate-400 hover:text-white text-2xl leading-none" aria-label="Schließen">×</button>
     </div>
-    <div class="px-4 pt-3 border-b border-slate-800/60 pb-3">
-      <div class="text-xs text-slate-400 mb-2">Schnellbefehle für diese Seite</div>
+    <div class="px-4 pt-3 border-b border-slate-800/60 pb-3 space-y-2">
+      <div class="text-xs text-slate-400">Schnellbefehle / Playbooks</div>
       <div id="ai-agent-chips" class="flex flex-wrap gap-2"></div>
+      <div class="flex gap-2 pt-1">
+        <button type="button" class="btn btn-secondary !py-1 !px-2 !text-xs" onclick="aiPlanWorkflow()">Plan erstellen</button>
+        <button type="button" class="btn btn-ghost !py-1 !px-2 !text-xs" onclick="aiSaveWorkflowTemplate()">Als Playbook speichern</button>
+      </div>
     </div>
     <div id="ai-agent-messages" class="flex-1 overflow-y-auto p-4 space-y-3 text-sm">
       <div class="bg-slate-900 border border-slate-800 rounded-lg p-3">
-        Ich helfe Ihnen beim Nachschlagen von Informationen und bereite Änderungen vor. <strong>Schreibende Aktionen werden nie automatisch ausgeführt</strong> – Sie bestätigen jede Übernahme explizit. Sicherheitsregeln (z. B. keine Weitergabe bei unbezahlten Bestellungen) bleiben geschützt.
+        Ich helfe beim Nachschlagen und kann Business-Workflows als Plan erstellen. <strong>Schreibende/produktive Schritte werden nur nach Ihrer Bestätigung ausgeführt.</strong>
       </div>
     </div>
+    <div id="ai-agent-workflow" class="hidden p-3 border-t border-indigo-900 bg-indigo-950/20 space-y-2"></div>
     <div id="ai-agent-pending" class="hidden p-3 border-t border-amber-900 bg-amber-950/30 space-y-2"></div>
     <form id="ai-agent-form" class="p-4 border-t border-slate-800">
       <div class="flex gap-2">
-        <textarea id="ai-agent-input" rows="2" maxlength="12000" placeholder="Stellen Sie Ihre Anfrage in Alltagssprache, z. B. „Zeige den Status der Anbindungen“." class="flex-1 rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"></textarea>
+        <textarea id="ai-agent-input" rows="2" maxlength="12000" placeholder="Beschreiben Sie einen Prozess, z. B. „Importiere Matterhorn, enrichere alle Produkte und bereite Marktplatz-Datensätze vor“." class="flex-1 rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"></textarea>
         <button type="submit" class="self-end bg-indigo-600 hover:bg-indigo-500 rounded-lg px-4 py-2 font-semibold">Senden</button>
       </div>
     </form>
@@ -225,29 +230,38 @@
       return `<div class="banner banner-error"><div class="font-medium">Aktion nicht erfolgreich</div><div class="text-sm mt-1">${String(message||'Es ist ein Fehler aufgetreten.')}</div>${retry}</div>`;
     }
 
-    // AI Copilot
+    // AI Copilot / Workflow Orchestrator
     let aiAgentConversationId = null;
+    let aiWorkflowRunId = null;
+    let aiWorkflowPoll = null;
+    let aiLastWorkflowPlan = null;
     function toggleAIAgent(){const d=document.getElementById('ai-agent-drawer'); d.classList.toggle('hidden'); if(!d.classList.contains('hidden')){renderAIAgentChips(); document.getElementById('ai-agent-input').focus();}}
     function aiAgentAdd(role, text){const box=document.getElementById('ai-agent-messages'); const el=document.createElement('div'); el.className=(role==='user'?'ml-8 bg-indigo-950 border border-indigo-800':'mr-8 bg-slate-900 border border-slate-800')+' rounded-lg p-3 whitespace-pre-wrap'; el.textContent=text||''; box.appendChild(el); box.scrollTop=box.scrollHeight;}
-    function aiAgentEsc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#039;'}[c]));}
+    function aiAgentEsc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));}
     function renderAIPending(actions){const box=document.getElementById('ai-agent-pending'); if(!actions||!actions.length){box.classList.add('hidden'); box.innerHTML=''; return;} box.classList.remove('hidden'); box.innerHTML='<div class="font-semibold text-amber-300 text-sm">Bitte bestätigen – die Änderung wird erst nach Ihrer Freigabe ausgeführt</div>'+actions.map(a=>'<div class="border border-amber-800 rounded-lg p-3 text-sm bg-slate-950/40"><div class="font-medium text-slate-100">Möchten Sie diese Einstellung übernehmen?</div><div class="mt-1 text-slate-300">'+aiAgentEsc(a.summary||'Geplante Änderung')+'</div><details class="mt-2 text-xs text-slate-400"><summary class="cursor-pointer hover:text-slate-200">Technische Details anzeigen</summary><pre class="mt-2 whitespace-pre-wrap overflow-auto">'+aiAgentEsc(JSON.stringify(a.diff,null,2))+'</pre></details><div class="mt-3 flex gap-2"><button onclick="confirmAIAction(\''+aiAgentEsc(a.action_id)+'\')" class="btn btn-primary !py-1.5">Übernehmen</button><button onclick="cancelAIAction(\''+aiAgentEsc(a.action_id)+'\')" class="btn btn-secondary !py-1.5">Abbrechen</button></div></div>').join('');}
+    function aiWorkflowStatusBadge(s){const m={planned:'badge-slate',awaiting_confirmation:'badge-amber',running:'badge-amber',completed:'badge-green',failed:'badge-red',blocked:'badge-red',succeeded:'badge-green',pending:'badge-slate',skipped:'badge-slate'}; return m[s]||'badge-slate';}
+    function renderAIWorkflow(run){const box=document.getElementById('ai-agent-workflow'); if(!run){box.classList.add('hidden'); box.innerHTML=''; return;} box.classList.remove('hidden'); const steps=(run.steps||[]).map(s=>`<div class="border border-slate-800 rounded p-2 bg-slate-950/40"><div class="flex items-center justify-between gap-2"><div class="text-xs font-medium">${aiAgentEsc(s.action||'step')}</div><span class="badge ${aiWorkflowStatusBadge(s.status)}">${aiAgentEsc(s.status||'pending')}</span></div><div class="text-[11px] text-slate-400 mt-1">${aiAgentEsc(JSON.stringify(s.params_json||s.params||{}))}</div>${s.error_message?`<div class="text-[11px] text-red-300 mt-1">${aiAgentEsc(s.error_message)}</div>`:''}${s.status==='failed'?`<button class="btn btn-secondary !py-1 !px-2 !text-xs mt-2" onclick="aiRetryWorkflowStep('${aiAgentEsc(run.id)}','${aiAgentEsc(s.id)}')">Schritt wiederholen</button>`:''}</div>`).join(''); box.innerHTML=`<div class="flex items-center justify-between gap-2"><div><div class="font-semibold text-indigo-200 text-sm">Workflow-Plan</div><div class="text-xs text-slate-400">${aiAgentEsc(run.summary||run.intent||'')}</div></div><span class="badge ${aiWorkflowStatusBadge(run.status)}">${aiAgentEsc(run.status||'planned')}</span></div><div class="space-y-2 max-h-64 overflow-auto">${steps||'<div class="text-xs text-slate-400">Keine Schritte</div>'}</div><div class="flex gap-2">${(run.status==='planned'||run.status==='awaiting_confirmation')?`<button class="btn btn-primary !py-1.5 !text-xs" onclick="aiConfirmWorkflow('${aiAgentEsc(run.id)}')">Workflow starten/bestätigen</button>`:''}<button class="btn btn-secondary !py-1.5 !text-xs" onclick="aiRefreshWorkflow('${aiAgentEsc(run.id)}')">Status aktualisieren</button></div>`;}
+    async function aiRefreshWorkflow(runId){if(!runId) return; try{const d=await apiFetch('/api/chat/workflow/runs/'+encodeURIComponent(runId)); renderAIWorkflow(d.run); if(['completed','failed','cancelled'].includes(String(d.run?.status)) && aiWorkflowPoll){clearInterval(aiWorkflowPoll); aiWorkflowPoll=null;}}catch(e){console.warn(e);}}
+    async function aiConfirmWorkflow(runId){try{const d=await apiFetch('/api/chat/workflow/runs/'+encodeURIComponent(runId)+'/confirm',{method:'POST'}); renderAIWorkflow(d.run); toast('Workflow gestartet/aktualisiert','success'); if(!aiWorkflowPoll) aiWorkflowPoll=setInterval(()=>aiRefreshWorkflow(runId),3000);}catch(e){toast(e.message,'error');}}
+    async function aiRetryWorkflowStep(runId, stepId){try{const d=await apiFetch(`/api/chat/workflow/runs/${encodeURIComponent(runId)}/retry-step/${encodeURIComponent(stepId)}`,{method:'POST'}); renderAIWorkflow(d.run); if(!aiWorkflowPoll) aiWorkflowPoll=setInterval(()=>aiRefreshWorkflow(runId),3000);}catch(e){toast(e.message,'error');}}
+    async function aiPlanWorkflow(){const msg=document.getElementById('ai-agent-input').value.trim(); if(!msg){toast('Bitte zuerst eine Anfrage eingeben','warning'); return;} aiAgentAdd('user', '[Plan] '+msg); try{const d=await apiFetch('/api/chat/workflow/plan',{method:'POST', body: JSON.stringify({message: msg, conversation_id: aiAgentConversationId, dry_run:true})}); aiLastWorkflowPlan=d.plan; const r=await apiFetch('/api/chat/workflow/runs',{method:'POST', body: JSON.stringify({message: msg, conversation_id: aiAgentConversationId, dry_run:false})}); aiWorkflowRunId=r.run?.id; renderAIWorkflow(r.run); aiAgentAdd('assistant','Workflow-Plan erstellt. Prüfen Sie die Schritte und starten Sie den Workflow nach Bestätigung.'); if(!aiWorkflowPoll && aiWorkflowRunId) aiWorkflowPoll=setInterval(()=>aiRefreshWorkflow(aiWorkflowRunId),4000);}catch(e){aiAgentAdd('assistant','Plan konnte nicht erstellt werden: '+e.message);}}
+    async function aiSaveWorkflowTemplate(){if(!aiLastWorkflowPlan){toast('Erst einen Workflow-Plan erstellen','warning'); return;} const name=prompt('Playbook-Name', aiLastWorkflowPlan.summary||'Workflow Playbook'); if(!name) return; try{await apiFetch('/api/chat/workflow/templates',{method:'POST', body: JSON.stringify({name, description: aiLastWorkflowPlan.summary||'', plan: aiLastWorkflowPlan, trigger_examples:[document.getElementById('ai-agent-input').value.trim()].filter(Boolean)})}); toast('Playbook gespeichert','success');}catch(e){toast(e.message,'error');}}
 
     function aiChipsForPath(){
       const p=window.location.pathname||'/';
-      if(p.startsWith('/ui/orders')||p==='/admin/orders') return ['Zeige alle unbezahlten Bestellungen','Welche Bestellungen sind versandbereit?','Prüfe blockierte Weitergaben'];
-      if(p==='/ui/crm') return ['Fasse offene Kundenanfragen zusammen','Neuen Termin mit Kunde anlegen','Zeige Threads ohne Bestellbezug'];
-      if(p.startsWith('/ui/products')) return ['Zeige Produkte ohne Bestand','Welche Produkte sind Entwürfe?','Prüfe fehlende Produktdaten'];
-      if(p==='/ui/matterhorn-import') return ['Prüfe den Matterhorn-Importstatus','Zeige letzte Importfehler','Ist die Feed-Adresse konfiguriert?'];
-      if(p==='/ui/marketplaces' || p==='/ui/connectors' || p==='/ui/integrations' || p==='/ui/shopware') return ['Shopware-Sync prüfen','Welche Anbindungen sind nicht konfiguriert?','Zeige den Integrationsstatus'];
+      const common=['Erstelle einen Workflow-Plan für meinen Auftrag','Importiere Matterhorn und enrichere alle Produkte für alle Marktplätze'];
+      if(p.startsWith('/ui/orders')||p==='/admin/orders') return ['Zeige alle unbezahlten Bestellungen','Welche Bestellungen sind versandbereit?','Prüfe blockierte Weitergaben', ...common];
+      if(p==='/ui/crm') return ['Fasse offene Kundenanfragen zusammen','Neuen Termin mit Kunde anlegen','Zeige Threads ohne Bestellbezug', ...common];
+      if(p.startsWith('/ui/products')) return ['Zeige Produkte ohne Bestand','Welche Produkte sind Entwürfe?','Prüfe fehlende Produktdaten', ...common];
+      if(p==='/ui/matterhorn-import') return ['Prüfe den Matterhorn-Importstatus','Importiere Matterhorn sicher und starte AI-Enrichment','Zeige letzte Importfehler'];
+      if(p==='/ui/marketplaces' || p==='/ui/connectors' || p==='/ui/integrations' || p==='/ui/shopware') return ['Shopware-Sync prüfen','Welche Anbindungen sind nicht konfiguriert?','Zeige Marktplatz-Datensatzstatus', ...common];
       if(p==='/ui/settings') return ['Welche Einstellungen fehlen noch?','Prüfe die OmniRoute-Konfiguration','Zeige den Integrationsstatus'];
-      if(p==='/ui/news-events') return ['Fasse aktuelle Szenen-Signale zusammen','Gibt es neue Trends in den gespeicherten Daten?'];
-      if(p==='/ui/ai-control' || p==='/ui/ai-photoshooting' || p==='/ui/content-studio') return ['Welche KI-Modelle sind verfügbar?','Prüfe die KI-Konfiguration'];
-      return ['Gib mir eine Systemübersicht','Gibt es aktuelle Fehler oder Warnungen?','Welche Aufgaben sind offen?'];
+      return ['Gib mir eine Systemübersicht','Gibt es aktuelle Fehler oder Warnungen?','Welche Aufgaben sind offen?', ...common];
     }
     function renderAIAgentChips(){const box=document.getElementById('ai-agent-chips'); if(!box) return; box.innerHTML=aiChipsForPath().map(t=>`<button type="button" class="chip" onclick="aiSendPreset(${JSON.stringify(t)})">${aiAgentEsc(t)}</button>`).join('');}
-    async function aiSendPreset(text){const input=document.getElementById('ai-agent-input'); input.value=text; document.getElementById('ai-agent-form').dispatchEvent(new Event('submit',{cancelable:true,bubbles:true}));}
+    async function aiSendPreset(text){const input=document.getElementById('ai-agent-input'); input.value=text; if(/workflow|importiere|enrichere|marktplatz/i.test(text)){await aiPlanWorkflow(); return;} document.getElementById('ai-agent-form').dispatchEvent(new Event('submit',{cancelable:true,bubbles:true}));}
 
-    const _aiForm=document.getElementById('ai-agent-form'); if(_aiForm){_aiForm.addEventListener('submit', async (e)=>{e.preventDefault(); const input=document.getElementById('ai-agent-input'); const message=input.value.trim(); if(!message) return; input.value=''; aiAgentAdd('user', message); try{const data=await apiFetch('/api/ai-agent/chat',{method:'POST', body: JSON.stringify({message, conversation_id: aiAgentConversationId})}); aiAgentConversationId=data.conversation_id||aiAgentConversationId; aiAgentAdd('assistant', data.message||'Ich habe Ihre Anfrage geprüft. Falls eine Änderung nötig ist, bereite ich sie zur Bestätigung vor.'); renderAIPending(data.pending_actions||[]);}catch(err){aiAgentAdd('assistant','Das hat leider nicht geklappt: '+err.message+' Bitte versuchen Sie es erneut oder formulieren Sie die Anfrage etwas anders.');}});}
+    const _aiForm=document.getElementById('ai-agent-form'); if(_aiForm){_aiForm.addEventListener('submit', async (e)=>{e.preventDefault(); const input=document.getElementById('ai-agent-input'); const message=input.value.trim(); if(!message) return; input.value=''; aiAgentAdd('user', message); if(/^(workflow:|plan:)/i.test(message) || /importiere .*und|enrichere .*und|starte .*workflow/i.test(message)){input.value=message.replace(/^(workflow:|plan:)/i,'').trim(); await aiPlanWorkflow(); return;} try{const data=await apiFetch('/api/ai-agent/chat',{method:'POST', body: JSON.stringify({message, conversation_id: aiAgentConversationId})}); aiAgentConversationId=data.conversation_id||aiAgentConversationId; aiAgentAdd('assistant', data.message||'Ich habe Ihre Anfrage geprüft. Falls eine Änderung nötig ist, bereite ich sie zur Bestätigung vor.'); renderAIPending(data.pending_actions||[]);}catch(err){aiAgentAdd('assistant','Das hat leider nicht geklappt: '+err.message+' Bitte versuchen Sie es erneut oder formulieren Sie die Anfrage etwas anders.');}});}
     async function confirmAIAction(actionId){try{const data=await apiFetch('/api/ai-agent/actions/'+encodeURIComponent(actionId)+'/confirm',{method:'POST', body:'{}'}); aiAgentAdd('assistant','Änderung übernommen.'); renderAIPending([]); toast('Änderung wurde übernommen.','success');}catch(err){aiAgentAdd('assistant','Die Übernahme war nicht möglich: '+err.message); toast(err.message,'error');}}
     async function cancelAIAction(actionId){try{await apiFetch('/api/ai-agent/actions/'+encodeURIComponent(actionId)+'/cancel',{method:'POST', body:'{}'}); aiAgentAdd('assistant','Vorgang abgebrochen. Es wurde nichts geändert.'); renderAIPending([]);}catch(err){aiAgentAdd('assistant','Abbrechen nicht möglich: '+err.message);}}
 

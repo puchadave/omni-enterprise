@@ -57,9 +57,9 @@ services:
       SECRET_KEY: ${SECRET_KEY:-}
       JWT_SECRET: ${JWT_SECRET:-}
       # OmniRoute standalone server integration (full)
-      OMNIROUTE_URL: ${OMNIROUTE_URL:-https://puchalla.online/v1}
-      OMNIROUTE_BASE_URL: ${OMNIROUTE_BASE_URL:-${OMNIROUTE_URL:-https://puchalla.online/v1}}
-      OMNI_ROUTE_URL: ${OMNI_ROUTE_URL:-${OMNIROUTE_URL:-https://puchalla.online/v1}}
+      OMNIROUTE_URL: ${OMNIROUTE_URL:-http://omniroute:20128/v1}
+      OMNIROUTE_BASE_URL: ${OMNIROUTE_BASE_URL:-${OMNIROUTE_URL:-http://omniroute:20128/v1}}
+      OMNI_ROUTE_URL: ${OMNI_ROUTE_URL:-${OMNIROUTE_URL:-http://omniroute:20128/v1}}
       OMNIROUTE_API_KEY: ${OMNIROUTE_API_KEY:-}
       SHOPWARE_URL: ${SHOPWARE_URL:-}
       SHOPWARE_CLIENT_ID: ${SHOPWARE_CLIENT_ID:-}
@@ -119,13 +119,13 @@ services:
     environment:
       TZ: ${TZ:-Europe/Berlin}
       AGENT_WORKSPACE: /workspace
-      AGENT_BASE_URL: ${AGENT_BASE_URL:-${OMNIROUTE_URL:-https://puchalla.online/v1}}
+      AGENT_BASE_URL: ${AGENT_BASE_URL:-${OMNIROUTE_URL:-http://omniroute:20128/v1}}
       AGENT_API_KEY: ${AGENT_API_KEY:-${OMNIROUTE_API_KEY:-}}
       AGENT_MODEL: ${AGENT_MODEL:-${OMNI_MODEL_ADMIN:-omni-admin-agent}}
       AGENT_MAX_STEPS: ${AGENT_MAX_STEPS:-30}
-      OMNIROUTE_URL: ${OMNIROUTE_URL:-https://puchalla.online/v1}
+      OMNIROUTE_URL: ${OMNIROUTE_URL:-http://omniroute:20128/v1}
       OMNIROUTE_API_KEY: ${OMNIROUTE_API_KEY:-}
-      OPENAI_BASE_URL: ${AGENT_BASE_URL:-${OMNIROUTE_URL:-https://puchalla.online/v1}}
+      OPENAI_BASE_URL: ${AGENT_BASE_URL:-${OMNIROUTE_URL:-http://omniroute:20128/v1}}
       OPENAI_API_KEY: ${AGENT_API_KEY:-${OMNIROUTE_API_KEY:-}}
     volumes:
       - ./:/workspace

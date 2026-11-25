@@ -92,5 +92,34 @@
       "noPermissionTitle": "Keine Berechtigung",
       "noPermission": "Sie haben keine Berechtigung, OMNI AI Import-Daten zu lesen."
     }
+  },
+  "omnicore-chat": {
+    "general": {
+      "mainMenuItemGeneral": "OMNI Chat-Workflow",
+      "descriptionTextModule": "Shopware-exklusiver Chat-Workflow: Plan, Bestätigung, asynchrone Ausführung, Audit, Rollback."
+    },
+    "plan": {
+      "title": "Workflow-Plan",
+      "scopeNotice": "Kanal-Scope ist strikt shopware. Andere Marktplätze bleiben unberührt/schreibgeschützt.",
+      "prompt": "Anfrage",
+      "promptPlaceholder": "Erstelle ein Bundle-Angebot für SKU A, B...",
+      "skus": "SKUs (optional)",
+      "previewTitle": "Dry-Run Diff / Vorschau"
+    },
+    "guardrails": {
+      "paangv": "PAngV 30-Tage-Referenzpreis-Gate",
+      "margin": "Mindestmargen-Gate"
+    },
+    "actions": {
+      "createPlan": "Plan erstellen",
+      "confirmExecute": "Bestätigen & asynchron ausführen",
+      "rollback": "1-Klick-Rollback (inaktiv setzen)",
+      "refresh": "Aktualisieren"
+    },
+    "messages": {
+      "planCreated": "Plan erstellt.",
+      "executeQueued": "Ausführung eingeplant.",
+      "rollbackDone": "Rollback abgeschlossen."
+    }
   }
 }

@@ -32,6 +32,18 @@
             <argument type="service" id="messenger.default_bus"/>
         </service>
 
+        <service id="OmniCore\Connector\Service\ShopwareChatService">
+            <argument type="service" id="Doctrine\DBAL\Connection"/>
+            <argument type="service" id="OmniCore\Connector\Service\MiddlewareApiClient"/>
+            <argument type="service" id="messenger.default_bus" on-invalid="null"/>
+        </service>
+
+        <service id="OmniCore\Connector\MessageHandler\ExecuteShopwareChatPlanHandler">
+            <argument type="service" id="OmniCore\Connector\Service\ShopwareChatService"/>
+            <argument type="service" id="monolog.logger"/>
+            <tag name="messenger.message_handler"/>
+        </service>
+
         <service id="OmniCore\Connector\MessageHandler\ProcessAiImportJobHandler">
             <argument type="service" id="OmniCore\Connector\Service\AiImportJobService"/>
             <argument type="service" id="monolog.logger"/>
@@ -61,6 +73,14 @@
         <service id="OmniCore\Connector\Controller\Admin\AiImportController" public="true">
             <argument type="service" id="OmniCore\Connector\Service\MiddlewareApiClient"/>
             <argument type="service" id="OmniCore\Connector\Service\AiImportJobService"/>
+            <call method="setContainer">
+                <argument type="service" id="service_container"/>
+            </call>
+            <tag name="controller.service_arguments"/>
+        </service>
+
+        <service id="OmniCore\Connector\Controller\Admin\ChatWorkflowController" public="true">
+            <argument type="service" id="OmniCore\Connector\Service\ShopwareChatService"/>
             <call method="setContainer">
                 <argument type="service" id="service_container"/>
             </call>

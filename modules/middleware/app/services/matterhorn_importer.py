@@ -24,6 +24,7 @@ from database import (
     upsert_product_aggregate,
     write_log,
 )
+from services.media_ingestion import MediaIngestionService
 
 logger = logging.getLogger(__name__)
 
@@ -577,6 +578,10 @@ class MatterhornUniversalImporter:
     def __init__(self, api_token: Optional[str] = None, client: Optional[httpx.AsyncClient] = None) -> None:
         self.api_token: Optional[str] = api_token
         self.client: httpx.AsyncClient = client or httpx.AsyncClient(timeout=30.0)
+        image_dir = os.getenv("MEDIA_IMAGE_DIR") or os.getenv("MATTERHORN_IMAGE_DIR") or "media/products/original"
+        max_size = int(float(os.getenv("MATTERHORN_IMAGE_MAX_BYTES", str(10 * 1024 * 1024))))
+        timeout = int(float(os.getenv("MATTERHORN_IMAGE_TIMEOUT_SECONDS", "15")))
+        self.media_ingestion = MediaIngestionService(download_dir=image_dir, max_image_size=max_size, timeout=timeout)
 
     async def close(self) -> None:
         await self.client.aclose()
@@ -676,11 +681,53 @@ class MatterhornUniversalImporter:
             await _publish_import_event("matterhorn.preview_failed", {"feed_url": feed_url or filename or "", "error": emsg})
             return {"status": "error", "feed_url": feed_url or filename or "", "error": emsg, "summary": {}, "validation": {"status": "invalid", "errors": [{"issues": ["fetch_or_parse_failed"], "message": emsg}]}, "items": []}
 
+    def _ingest_product_images(self, product: dict[str, Any], *, job_id: str) -> dict[str, Any]:
+        sku = str(product.get("sku") or "").strip()
+        raw_images = product.get("gallery_json") or product.get("images") or []
+        if isinstance(raw_images, str):
+            try:
+                raw_images = json.loads(raw_images)
+            except Exception:
+                raw_images = [raw_images]
+        if not isinstance(raw_images, list):
+            raw_images = []
+        # include main image as first candidate if missing
+        main = str(product.get("main_image_url") or "").strip()
+        if main and not any(str((x or {}).get("url") if isinstance(x, dict) else x).strip() == main for x in raw_images):
+            raw_images = [main] + raw_images
+        try:
+            result = self.media_ingestion.ingest_urls(raw_images, sku=sku, job_id=job_id)
+        except Exception as exc:
+            logger.warning("image_ingestion_failed", extra={"job_id": job_id, "sku": sku, "error": str(exc)})
+            return {"assets": [], "errors": [ErrorCodeLike.ERR_IMAGE_DOWNLOAD_FAILED if False else "ERR_IMAGE_DOWNLOAD_FAILED"], "cover_url": str(product.get("main_image_url") or "")}
+        assets = result.get("assets") or []
+        gallery = []
+        for i, a in enumerate(assets):
+            gallery.append({
+                "url": a.get("source_url"),
+                "source_url": a.get("source_url"),
+                "local_path": a.get("local_path"),
+                "path": a.get("local_path"),
+                "sha256": a.get("sha256"),
+                "mime_type": a.get("mime_type"),
+                "size_bytes": a.get("size_bytes"),
+                "width": a.get("width"),
+                "height": a.get("height"),
+                "position": i,
+                "status": a.get("status"),
+            })
+        return {
+            "gallery_json": gallery,
+            "main_image_url": str(result.get("cover_url") or product.get("main_image_url") or ""),
+            "errors": result.get("errors") or [],
+            "assets": assets,
+        }
+
     async def import_products(self, source: str = "matterhorn_xml", *, feed_url: str | None = None, mode: str = "safe", dry_run: bool = False, preview_id: str | None = None, confirm_full_without_preview: bool = False, sync_rules: dict[str, Any] | None = None, content: str | bytes | None = None, filename: str | None = None, format_hint: str | None = None) -> Dict[str, Any]:
         mode = (mode or "safe").lower()
         resolved_source = feed_url or filename or "upload"
         run_id = await start_import_run(source, mode=mode, feed_url=str(resolved_source))
-        imported = updated = errors = skipped = created_count = updated_count = variants_linked = 0
+        imported = updated = errors = skipped = updated_count = variants_linked = 0
         category_links = 0
         issues: list[dict[str, Any]] = []
         try:
@@ -703,7 +750,7 @@ class MatterhornUniversalImporter:
             eff_rules = {"mode": "full" if mode in ("full",) else ("stock_only" if mode == "stock_only" else ("ek_only" if mode == "ek_only" else "full")), "preserve_manual_seo": True, "preserve_marketplace_mappings": True}
             if isinstance(sync_rules, dict):
                 eff_rules.update(sync_rules)
-            # map UI/import modes: safe/partial behave like full but skip invalid
+
             for product in products:
                 sku = str(product.get("sku") or "").strip()
                 try:
@@ -711,22 +758,34 @@ class MatterhornUniversalImporter:
                         skipped += 1; issues.append({"sku": sku, "reason": "missing_sku"}); continue
                     if mode in ("safe", "partial") and sku in invalid_skus:
                         skipped += 1; issues.append({"sku": sku, "reason": "validation_error_skipped", "issues": [e for e in validation.get("errors", []) if e.get("sku")==sku]}); continue
+
                     raw_stock = _to_int(product.get("supplier_stock", product.get("stock_quantity", product.get("stock", 0))), 0)
                     buffered_stock = max(0, int(raw_stock * (1 - STOCK_BUFFER_PERCENT)))
-                    # preserve lossless raw but store effective buffered stock
                     product_payload = dict(product)
                     product_payload["stock"] = buffered_stock
                     product_payload["stock_quantity"] = buffered_stock
                     product_payload["source_system"] = str(product_payload.get("source_system") or "matterhorn")
-                    src_hash = hashlib.sha256(json.dumps({"sku": sku, "ext": product_payload.get("external_matterhorn_id"), "title": product_payload.get("title"), "price": product_payload.get("supplier_price"), "sale": product_payload.get("sale_price"), "stock": raw_stock, "ean": product_payload.get("ean"), "cat": product_payload.get("category"), "attrs": product_payload.get("attributes"), "vars": product_payload.get("variants"), "log": {k: product_payload.get(k) for k in ("warehouse_location","bin_code","hs_code","country_of_origin","weight_net_kg","weight_gross_kg","length_cm","width_cm","height_cm","lead_time_days","reorder_level")}}, sort_keys=True, ensure_ascii=False, default=str).encode("utf-8")).hexdigest()
+
+                    raw_had_images = bool(product_payload.get("gallery_json") or product_payload.get("main_image_url"))
+                    media = self._ingest_product_images(product_payload, job_id=run_id)
+                    if media.get("gallery_json"):
+                        product_payload["gallery_json"] = media["gallery_json"]
+                    elif raw_had_images:
+                        product_payload["gallery_json"] = []
+                    if media.get("main_image_url"):
+                        product_payload["main_image_url"] = media["main_image_url"]
+                    elif raw_had_images:
+                        product_payload["main_image_url"] = ""
+                    if media.get("errors"):
+                        issues.append({"sku": sku, "reason": "image_partial_failure", "image_errors": media.get("errors"), "downloaded": len(media.get("assets") or [])})
+
+                    src_hash = hashlib.sha256(json.dumps({"sku": sku, "ext": product_payload.get("external_matterhorn_id"), "title": product_payload.get("title"), "price": product_payload.get("supplier_price"), "sale": product_payload.get("sale_price"), "stock": raw_stock, "ean": product_payload.get("ean"), "cat": product_payload.get("category"), "attrs": product_payload.get("attributes"), "vars": product_payload.get("variants"), "main_image_url": product_payload.get("main_image_url"), "gallery_json": product_payload.get("gallery_json"), "log": {k: product_payload.get(k) for k in ("warehouse_location","bin_code","hs_code","country_of_origin","weight_net_kg","weight_gross_kg","length_cm","width_cm","height_cm","lead_time_days","reorder_level")}}, sort_keys=True, ensure_ascii=False, default=str).encode("utf-8")).hexdigest()
                     product_payload["source_hash"] = src_hash
+
                     res = await upsert_product_aggregate(product_payload, sync_rules=eff_rules)
                     imported += 1
                     if res.get("changed"):
                         updated += 1; updated_count += 1
-                    else:
-                        # new or unchanged; treat new insert as created best-effort not directly known except changed flag; count imported regardless
-                        created_count += 1 if not res.get("changed") else 0
                     variants_linked += int(res.get("variants_linked") or 0)
                     category_links += int(res.get("categories_linked") or 0)
                 except Exception as exc:
@@ -735,13 +794,29 @@ class MatterhornUniversalImporter:
                     logger.exception("Error importing product %s", sku or "?")
 
             await refresh_all_bundle_stocks()
+
+            enrichment_job_id = None
+            enrichment_skus = [str(p.get("sku") or "").strip() for p in products if str(p.get("sku") or "").strip()]
+            try:
+                from database import job_create
+                enrichment_job_id_job = await job_create(
+                    job_type="matterhorn_enrichment",
+                    payload={"run_id": run_id, "skus": enrichment_skus, "source": resolved_source},
+                    created_by="matterhorn_importer",
+                    correlation_id=run_id,
+                )
+                enrichment_job_id = str((enrichment_job_id_job or {}).get("id") or "")
+            except Exception as exc:
+                issues.append({"reason": "enrichment_job_enqueue_failed", "message": str(exc)})
+                logger.warning("matterhorn_enrichment_enqueue_failed run_id=%s error=%s", run_id, exc)
+
             run_status = "success" if errors == 0 else "failed"
-            summary = {"total": len(products), "imported": imported, "created": max(imported - updated_count, 0), "updated": updated_count, "errors": errors, "skipped": skipped, "variants_linked": variants_linked, "categories_linked": category_links}
-            protocol = {"validation": validation, "issues": issues[:500], "sync_rules": eff_rules, "source": resolved_source}
+            summary = {"total": len(products), "imported": imported, "created": max(imported - updated_count, 0), "updated": updated_count, "errors": errors, "skipped": skipped, "variants_linked": variants_linked, "categories_linked": category_links, "enrichment_job_id": enrichment_job_id}
+            protocol = {"validation": validation, "issues": issues[:500], "sync_rules": eff_rules, "source": resolved_source, "enrichment_job_id": enrichment_job_id}
             await finish_import_run(run_id, imported=imported, updated=updated_count, errors=errors, skipped=skipped, created_count=max(imported-updated_count,0), updated_count=updated_count, variants_linked=variants_linked, status=run_status, summary=summary, protocol=protocol, error_message="" if errors==0 else f"{errors} Produkte mit Fehlern")
             await write_log("INFO" if errors == 0 else "WARNING", "matterhorn_import_complete", f"Matterhorn import finished: {imported} products, {updated_count} changed, {errors} errors, {skipped} skipped (mode={mode})", {"run_id": run_id, "mode": mode, **summary})
             await _publish_import_event("matterhorn.import_completed", {"run_id": run_id, **summary, "mode": mode, "status": run_status})
-            return {"imported": imported, "updated": updated_count, "created": max(imported-updated_count,0), "errors": errors, "skipped": skipped, "variants_linked": variants_linked, "categories_linked": category_links, "status": run_status, "mode": mode, "validation": validation, "summary": summary, "protocol": protocol, "run_id": run_id}
+            return {"imported": imported, "updated": updated_count, "created": max(imported-updated_count,0), "errors": errors, "skipped": skipped, "variants_linked": variants_linked, "categories_linked": category_links, "status": run_status, "mode": mode, "validation": validation, "summary": summary, "protocol": protocol, "run_id": run_id, "enrichment_job_id": enrichment_job_id}
         except Exception as exc:
             logger.exception("Matterhorn import run failed: %s", exc)
             await write_log("ERROR", "matterhorn_import_failed", f"Matterhorn import failed: {exc}", {"run_id": run_id})

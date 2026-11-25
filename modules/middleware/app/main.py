@@ -541,6 +541,15 @@ runtime = AppRuntime()
 templates = Jinja2Templates(directory="templates")
 
 
+
+def external_marketplaces_enabled() -> bool:
+    return os.getenv("ENABLE_EXTERNAL_MARKETPLACES", "false").lower() in {"1", "true", "yes", "on"}
+
+
+def require_external_marketplaces_enabled() -> None:
+    if not external_marketplaces_enabled():
+        raise HTTPException(status_code=403, detail="External marketplaces are disabled for Shopware live mode. Set ENABLE_EXTERNAL_MARKETPLACES=true only in a dedicated staging/dev environment.")
+
 def is_secret_key(key: str) -> bool:
     """Classify configuration keys that must be masked in responses."""
     normalized = key.lower()
@@ -639,6 +648,12 @@ async def execute_persistent_job(job: dict[str, Any]) -> dict[str, Any]:
             preview_id=payload.get("preview_id"),
             confirm_full_without_preview=bool(payload.get("confirm_full_without_preview", False)),
         )
+    if jtype == "matterhorn_enrichment":
+        from services.marketplace_enrichment_pipeline import enrich_products_for_channels
+        skus = payload.get("skus") or []
+        channels = payload.get("channels") or None
+        run_id = str(payload.get("run_id") or job.get("correlation_id") or "")
+        return await enrich_products_for_channels(skus=[str(s) for s in skus if str(s).strip()], channels=channels, import_run_id=run_id, runtime=runtime)
     if jtype == "trend_analysis":
         if runtime.omniroute is None:
             raise RuntimeError("OmniRoute not configured")
@@ -2371,6 +2386,7 @@ async def _mcc_products_for_scoring(limit: int = 500) -> list[dict[str, Any]]:
 
 @app.get("/api/marketplace-command/overview")
 async def mcc_api_overview():
+    require_external_marketplaces_enabled()
     ov = await mcc_overview()
     ov["marketplaces"] = [_mcc_safe_marketplace(m) for m in ov.get("marketplaces", [])]
     return {"status": "ok", "overview": ov}
@@ -2378,6 +2394,7 @@ async def mcc_api_overview():
 
 @app.get("/api/marketplace-command/marketplaces")
 async def mcc_api_list_marketplaces():
+    require_external_marketplaces_enabled()
     mps = await mcc_list_marketplaces()
     enriched = []
     for mp in mps:
@@ -2398,6 +2415,7 @@ async def mcc_api_list_marketplaces():
 
 @app.post("/api/marketplace-command/marketplaces")
 async def mcc_api_upsert_marketplace(payload: MarketplaceUpsertRequest, principal: dict[str, Any] = Depends(get_current_principal)):
+    require_external_marketplaces_enabled()
     data = payload.model_dump()
     data["config_json"] = data.pop("config", {})
     creds = data.pop("credentials", {})
@@ -2416,6 +2434,7 @@ async def mcc_api_upsert_marketplace(payload: MarketplaceUpsertRequest, principa
 
 @app.get("/api/marketplace-command/marketplaces/{marketplace_id}")
 async def mcc_api_get_marketplace(marketplace_id: str):
+    require_external_marketplaces_enabled()
     mp = await mcc_get_marketplace(marketplace_id)
     if not mp:
         raise HTTPException(status_code=404, detail="Marketplace not found")
@@ -2427,6 +2446,7 @@ async def mcc_api_get_marketplace(marketplace_id: str):
 
 @app.post("/api/marketplace-command/marketplaces/{marketplace_id}/health")
 async def mcc_api_marketplace_health(marketplace_id: str):
+    require_external_marketplaces_enabled()
     mp = await mcc_get_marketplace(marketplace_id, include_credentials=True)
     if not mp:
         raise HTTPException(status_code=404, detail="Marketplace not found")
@@ -2442,6 +2462,7 @@ async def mcc_api_marketplace_health(marketplace_id: str):
 
 @app.post("/api/marketplace-command/selection/run")
 async def mcc_api_selection_run(payload: MarketplaceSelectionRunRequest, principal: dict[str, Any] = Depends(get_current_principal)):
+    require_external_marketplaces_enabled()
     mp = await mcc_get_marketplace(payload.marketplace_id, include_credentials=True)
     if not mp:
         raise HTTPException(status_code=404, detail="Marketplace not found")
@@ -2465,6 +2486,7 @@ async def mcc_api_selection_run(payload: MarketplaceSelectionRunRequest, princip
 
 @app.get("/api/marketplace-command/selection/{marketplace_id}")
 async def mcc_api_selection_list(marketplace_id: str, limit: int = Query(default=200, ge=1, le=2000)):
+    require_external_marketplaces_enabled()
     mp = await mcc_get_marketplace(marketplace_id)
     if not mp:
         raise HTTPException(status_code=404, detail="Marketplace not found")
@@ -2474,6 +2496,7 @@ async def mcc_api_selection_list(marketplace_id: str, limit: int = Query(default
 
 @app.get("/api/marketplace-command/matrix")
 async def mcc_api_matrix(marketplace_id: str | None = None, limit: int = Query(default=500, ge=1, le=5000)):
+    require_external_marketplaces_enabled()
     mps = [await mcc_get_marketplace(marketplace_id)] if marketplace_id else await mcc_list_marketplaces()
     mps = [m for m in mps if m]
     rows = []
@@ -2501,12 +2524,14 @@ async def mcc_api_matrix(marketplace_id: str | None = None, limit: int = Query(d
 
 @app.post("/api/marketplace-command/export/preview")
 async def mcc_api_export_preview(payload: MarketplaceExportRequest, principal: dict[str, Any] = Depends(get_current_principal)):
+    require_external_marketplaces_enabled()
     payload.mode = EXPORT_DRY_RUN
     return await mcc_api_export_start(payload, principal)
 
 
 @app.post("/api/marketplace-command/export/start")
 async def mcc_api_export_start(payload: MarketplaceExportRequest, principal: dict[str, Any] = Depends(get_current_principal)):
+    require_external_marketplaces_enabled()
     mp = await mcc_get_marketplace(payload.marketplace_id, include_credentials=True)
     if not mp:
         raise HTTPException(status_code=404, detail="Marketplace not found")
@@ -2619,12 +2644,14 @@ async def mcc_api_export_start(payload: MarketplaceExportRequest, principal: dic
 
 @app.get("/api/marketplace-command/export/jobs")
 async def mcc_api_export_jobs(marketplace_id: str | None = None, limit: int = Query(default=100, ge=1, le=500)):
+    require_external_marketplaces_enabled()
     jobs = await mcc_list_export_jobs(marketplace_id=marketplace_id, limit=limit)
     return {"status": "ok", "jobs": jobs}
 
 
 @app.get("/api/marketplace-command/export/jobs/{job_id}")
 async def mcc_api_export_job(job_id: str):
+    require_external_marketplaces_enabled()
     job = await mcc_get_export_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -2634,6 +2661,7 @@ async def mcc_api_export_job(job_id: str):
 
 @app.get("/api/marketplace-command/audit")
 async def mcc_api_audit(marketplace_id: str = "", product_sku: str = "", limit: int = Query(default=200, ge=1, le=1000)):
+    require_external_marketplaces_enabled()
     items = await mcc_list_audit(marketplace_id=marketplace_id, product_sku=product_sku, limit=limit)
     return {"status": "ok", "items": items}
 
@@ -2999,6 +3027,7 @@ class GoogleSyncRequest(BaseModel):
 
 @app.post("/api/google/accounts")
 async def create_google_account(payload: GoogleAccountCreate):
+    require_external_marketplaces_enabled()
     """Create a Google Merchant Center account connection."""
     from uuid import uuid4
     account_id = str(uuid4())
@@ -3045,6 +3074,7 @@ async def create_google_account(payload: GoogleAccountCreate):
 
 @app.get("/api/google/accounts")
 async def list_google_accounts():
+    require_external_marketplaces_enabled()
     """List all Google Merchant Center accounts."""
     from database import google_list_accounts
     accounts = await google_list_accounts()
@@ -3063,6 +3093,7 @@ async def list_google_accounts():
 
 @app.post("/api/google/accounts/{account_id}/test")
 async def test_google_connection(account_id: str):
+    require_external_marketplaces_enabled()
     """Test a Google Merchant Center connection."""
     client = runtime.google_merchant_clients.get(account_id)
     if not client:
@@ -3072,6 +3103,7 @@ async def test_google_connection(account_id: str):
 
 @app.post("/api/google/export")
 async def google_export_product(payload: GoogleProductExportRequest):
+    require_external_marketplaces_enabled()
     """Export a product to Google Merchant Center."""
     engine = runtime.google_export_engines.get(payload.account_id)
     if not engine:
@@ -3100,6 +3132,7 @@ async def google_export_product(payload: GoogleProductExportRequest):
 
 @app.get("/api/google/export/queue")
 async def list_google_export_queue(account_id: str | None = None, status: str | None = None, limit: int = Query(default=100, ge=1, le=500)):
+    require_external_marketplaces_enabled()
     """List Google export queue items."""
     all_items = []
     for acc_id, engine in runtime.google_export_engines.items():
@@ -3114,6 +3147,7 @@ async def list_google_export_queue(account_id: str | None = None, status: str | 
 
 @app.get("/api/google/export/stats")
 async def google_export_stats(account_id: str | None = None):
+    require_external_marketplaces_enabled()
     """Get Google export statistics."""
     all_stats = {"total": 0, "pending": 0, "processing": 0, "completed": 0, "errors": 0, "withdrawn": 0, "retry": 0, "dead_letter": 0, "avg_validation_score": 0}
     count = 0
@@ -3132,6 +3166,7 @@ async def google_export_stats(account_id: str | None = None):
 
 @app.post("/api/google/export/process")
 async def process_google_export(account_id: str, max_items: int = 10):
+    require_external_marketplaces_enabled()
     """Process pending Google export queue items."""
     engine = runtime.google_export_engines.get(account_id)
     if not engine:
@@ -3141,6 +3176,7 @@ async def process_google_export(account_id: str, max_items: int = 10):
 
 @app.post("/api/google/export/retry")
 async def retry_google_failed(account_id: str | None = None, export_id: str | None = None):
+    require_external_marketplaces_enabled()
     """Retry failed Google export items."""
     retried = 0
     for acc_id, engine in runtime.google_export_engines.items():
@@ -3153,6 +3189,7 @@ async def retry_google_failed(account_id: str | None = None, export_id: str | No
 
 @app.post("/api/google/sync")
 async def google_sync(payload: GoogleSyncRequest):
+    require_external_marketplaces_enabled()
     """Trigger a Google sync job."""
     engine = runtime.google_export_engines.get(payload.account_id)
     if not engine:
@@ -3172,6 +3209,7 @@ async def google_sync(payload: GoogleSyncRequest):
 
 @app.get("/api/google/export/health/{account_id}")
 async def google_health(account_id: str):
+    require_external_marketplaces_enabled()
     """Check Google Merchant Center connection health."""
     engine = runtime.google_export_engines.get(account_id)
     if not engine:
@@ -3694,6 +3732,7 @@ async def ui_marketplaces(request: Request):
 
 @app.get("/ui/marketplace-command-center", response_class=HTMLResponse)
 async def ui_marketplace_command_center(request: Request):
+    require_external_marketplaces_enabled()
     return templates.TemplateResponse(request, "marketplace_command_center.html", {"request": request})
 
 @app.get("/ui/one-click-go-live", response_class=HTMLResponse)
@@ -3997,6 +4036,130 @@ async def api_ai_agent_cancel(action_id: str, user: dict[str, Any] = Depends(req
 
 
 # ---------------------------------------------------------------------------
+# Shopware Admin Chat Workflow (channel-isolated, two-phase)
+# ---------------------------------------------------------------------------
+
+class _ShopwareChatPlanPayload(BaseModel):
+    message: str = Field(min_length=1, max_length=12000)
+    skus: list[str] = Field(default_factory=list)
+    confirm: bool = False
+
+
+class _ShopwareChatExecutePayload(BaseModel):
+    idempotency_key: str = Field(default="", max_length=191)
+
+
+@app.post("/api/shopware/chat/plan")
+async def api_shopware_chat_plan(payload: _ShopwareChatPlanPayload, user: dict[str, Any] = Depends(require_permission("products.read"))) -> dict[str, Any]:
+    from services.shopware_chat_service import plan_shopware_chat
+    actor = str(user.get("email") or user.get("username") or user.get("id") or "admin")
+    plan = await plan_shopware_chat(payload.message, actor=actor, skus=payload.skus, confirm=payload.confirm)
+    return {"status": "ok", "channel_scope": "shopware", "plan": plan}
+
+
+@app.get("/api/shopware/chat/plans/{plan_id}")
+async def api_shopware_chat_get_plan(plan_id: str, user: dict[str, Any] = Depends(require_permission("products.read"))) -> dict[str, Any]:
+    from services.shopware_chat_service import get_shopware_chat_plan
+    plan = await get_shopware_chat_plan(plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    return {"status": "ok", "plan": plan}
+
+
+@app.post("/api/shopware/chat/plans/{plan_id}/execute")
+async def api_shopware_chat_execute(plan_id: str, payload: _ShopwareChatExecutePayload, user: dict[str, Any] = Depends(require_permission("products.write"))) -> dict[str, Any]:
+    from services.shopware_chat_service import execute_shopware_chat_plan
+    actor = str(user.get("email") or user.get("username") or user.get("id") or "admin")
+    try:
+        plan = await execute_shopware_chat_plan(plan_id, actor=actor, idempotency_key=payload.idempotency_key)
+        return {"status": "ok", "plan": plan}
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+
+
+@app.post("/api/shopware/chat/plans/{plan_id}/rollback")
+async def api_shopware_chat_rollback(plan_id: str, user: dict[str, Any] = Depends(require_permission("products.write"))) -> dict[str, Any]:
+    from services.shopware_chat_service import rollback_shopware_chat_plan
+    actor = str(user.get("email") or user.get("username") or user.get("id") or "admin")
+    plan = await rollback_shopware_chat_plan(plan_id, actor=actor)
+    return {"status": "ok", "plan": plan}
+
+
+# ---------------------------------------------------------------------------
+# Conversational Business Workflow Orchestrator
+# ---------------------------------------------------------------------------
+
+class _WorkflowPlanPayload(BaseModel):
+    message: str = Field(min_length=1, max_length=12000)
+    conversation_id: str | None = Field(default=None, max_length=128)
+    dry_run: bool = False
+
+
+class _WorkflowTemplatePayload(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    description: str = Field(default="", max_length=2000)
+    plan: dict[str, Any] = Field(default_factory=dict)
+    trigger_examples: list[str] = Field(default_factory=list)
+
+
+@app.post("/api/chat/workflow/plan")
+async def api_chat_workflow_plan(payload: _WorkflowPlanPayload, user: dict[str, Any] = Depends(require_permission("ai.configure"))) -> dict[str, Any]:
+    from services.workflow_planner import plan_workflow
+    actor = str(user.get("email") or user.get("username") or user.get("id") or "admin")
+    plan = await plan_workflow(payload.message, runtime=runtime, actor=actor, context={"conversation_id": payload.conversation_id or ""})
+    return {"status": "ok", "plan": plan, "dry_run": bool(payload.dry_run)}
+
+
+@app.post("/api/chat/workflow/runs")
+async def api_chat_workflow_create_run(payload: _WorkflowPlanPayload, user: dict[str, Any] = Depends(require_permission("ai.configure"))) -> dict[str, Any]:
+    from services.workflow_planner import plan_workflow
+    from services.workflow_orchestrator import create_workflow_run
+    actor = str(user.get("email") or user.get("username") or user.get("id") or "admin")
+    plan = await plan_workflow(payload.message, runtime=runtime, actor=actor, context={"conversation_id": payload.conversation_id or ""})
+    run = await create_workflow_run(plan, actor=actor, conversation_id=str(payload.conversation_id or ""))
+    return {"status": "ok", "run": run, "plan": plan}
+
+
+@app.get("/api/chat/workflow/runs/{run_id}")
+async def api_chat_workflow_get_run(run_id: str, user: dict[str, Any] = Depends(require_permission("ai.configure"))) -> dict[str, Any]:
+    from services.workflow_orchestrator import get_workflow_run
+    run = await get_workflow_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Workflow run not found")
+    return {"status": "ok", "run": run}
+
+
+@app.post("/api/chat/workflow/runs/{run_id}/confirm")
+async def api_chat_workflow_confirm(run_id: str, user: dict[str, Any] = Depends(require_permission("ai.configure"))) -> dict[str, Any]:
+    from services.workflow_orchestrator import execute_workflow_run
+    actor = str(user.get("email") or user.get("username") or user.get("id") or "admin")
+    run = await execute_workflow_run(run_id, actor=actor, runtime=runtime, confirmed=True)
+    return {"status": "ok", "run": run}
+
+
+@app.post("/api/chat/workflow/runs/{run_id}/retry-step/{step_id}")
+async def api_chat_workflow_retry_step(run_id: str, step_id: str, user: dict[str, Any] = Depends(require_permission("ai.configure"))) -> dict[str, Any]:
+    from services.workflow_orchestrator import retry_workflow_step
+    actor = str(user.get("email") or user.get("username") or user.get("id") or "admin")
+    run = await retry_workflow_step(run_id, step_id, actor=actor, runtime=runtime, confirmed=True)
+    return {"status": "ok", "run": run}
+
+
+@app.get("/api/chat/workflow/templates")
+async def api_chat_workflow_templates(user: dict[str, Any] = Depends(require_permission("ai.configure"))) -> dict[str, Any]:
+    from services.workflow_orchestrator import list_workflow_templates
+    return {"status": "ok", "templates": await list_workflow_templates()}
+
+
+@app.post("/api/chat/workflow/templates")
+async def api_chat_workflow_save_template(payload: _WorkflowTemplatePayload, user: dict[str, Any] = Depends(require_permission("ai.configure"))) -> dict[str, Any]:
+    from services.workflow_orchestrator import save_workflow_template
+    actor = str(user.get("email") or user.get("username") or user.get("id") or "admin")
+    tpl = await save_workflow_template(name=payload.name, description=payload.description, plan=payload.plan, created_by=actor, trigger_examples=payload.trigger_examples)
+    return {"status": "ok", "template": tpl}
+
+
+# ---------------------------------------------------------------------------
 # Multimodal Creative / Photoshooting APIs (foundation)
 # ---------------------------------------------------------------------------
 
@@ -4145,7 +4308,7 @@ async def api_integrations_status() -> dict[str, Any]:
         },
         "shopware": {"configured_connections": shopware},
         "omniroute": {"configured": bool(omniroute_url), "healthy": bool(getattr(runtime, "omniroute_healthy", False))},
-        "connectors": {"registered": len(reg.list_connectors())},
+        "connectors": {"registered": len(reg.list_connectors()), "external_marketplaces_enabled": os.getenv("ENABLE_EXTERNAL_MARKETPLACES", "false").lower() in {"1","true","yes","on"}},
         "jobs": {"persistent_worker": runtime.persistent_job_task is not None and not runtime.persistent_job_task.done() if getattr(runtime, "persistent_job_task", None) else False,
                  "scheduler": runtime.scheduler_task is not None and not runtime.scheduler_task.done() if getattr(runtime, "scheduler_task", None) else False},
         "event_bus": (runtime.event_bus.get_stats() if getattr(runtime, "event_bus", None) else {"running": False}),
@@ -4254,6 +4417,7 @@ async def ui_connectors(request: Request):
 
 @app.get("/api/connectors")
 async def api_list_connectors(user: dict[str, Any] = Depends(require_permission("connectors.read"))):
+    require_external_marketplaces_enabled()
     """List all registered platform connectors with capabilities."""
     from services.connector_registry import ConnectorRegistry
     reg = ConnectorRegistry.get_instance()
@@ -4265,6 +4429,7 @@ async def api_list_connectors(user: dict[str, Any] = Depends(require_permission(
 
 @app.post("/api/connectors/{connector_id}/test")
 async def api_test_connector(connector_id: str, user: dict[str, Any] = Depends(require_permission("connectors.configure"))):
+    require_external_marketplaces_enabled()
     """Execute live connection test for a specific connector."""
     from services.connector_registry import ConnectorRegistry
     from database import connector_account_list
@@ -4528,6 +4693,7 @@ async def api_pi_signals(sku: str | None = None, limit: int = 100, user: dict[st
 
 @app.get("/api/connectors/accounts")
 async def api_get_connector_accounts(user: dict[str, Any] = Depends(require_permission("connectors.read"))):
+    require_external_marketplaces_enabled()
     """List all seller accounts."""
     from database import connector_account_list
     rows = await connector_account_list()
@@ -4536,6 +4702,7 @@ async def api_get_connector_accounts(user: dict[str, Any] = Depends(require_perm
 
 @app.post("/api/connectors/accounts")
 async def api_save_connector_account(account: dict[str, Any] = Body(...), user: dict[str, Any] = Depends(require_permission("connectors.configure"))):
+    require_external_marketplaces_enabled()
     """Save or update a seller account."""
     from database import connector_account_upsert
     saved = await connector_account_upsert(account)
@@ -4544,6 +4711,7 @@ async def api_save_connector_account(account: dict[str, Any] = Body(...), user: 
 
 @app.delete("/api/connectors/accounts/{account_id}")
 async def api_delete_connector_account(account_id: str, user: dict[str, Any] = Depends(require_permission("connectors.configure"))):
+    require_external_marketplaces_enabled()
     """Delete a seller account."""
     from database import connector_account_delete
     ok = await connector_account_delete(account_id)
@@ -4552,6 +4720,7 @@ async def api_delete_connector_account(account_id: str, user: dict[str, Any] = D
 
 @app.get("/api/connectors/mappings")
 async def api_get_connector_mappings(connector_id: str | None = None, user: dict[str, Any] = Depends(require_permission("connectors.read"))):
+    require_external_marketplaces_enabled()
     """List field mappings."""
     from database import connector_mapping_list
     return await connector_mapping_list(connector_id)
@@ -4559,6 +4728,7 @@ async def api_get_connector_mappings(connector_id: str | None = None, user: dict
 
 @app.post("/api/connectors/mappings")
 async def api_save_connector_mapping(mapping: dict[str, Any] = Body(...), user: dict[str, Any] = Depends(require_permission("connectors.configure"))):
+    require_external_marketplaces_enabled()
     """Create or update a field mapping rule."""
     from database import connector_mapping_upsert
     return await connector_mapping_upsert(mapping)
@@ -4566,6 +4736,7 @@ async def api_save_connector_mapping(mapping: dict[str, Any] = Body(...), user: 
 
 @app.get("/api/connectors/exports")
 async def api_get_connector_exports(connector_id: str | None = None, user: dict[str, Any] = Depends(require_permission("connectors.read"))):
+    require_external_marketplaces_enabled()
     """Get export queue and audit history."""
     from database import connector_export_list
     return await connector_export_list(connector_id)
@@ -4573,6 +4744,7 @@ async def api_get_connector_exports(connector_id: str | None = None, user: dict[
 
 @app.post("/api/connectors/{connector_id}/export")
 async def api_trigger_connector_export(connector_id: str, payload: dict[str, Any] = Body(...), user: dict[str, Any] = Depends(require_permission("connectors.configure"))):
+    require_external_marketplaces_enabled()
     """Enqueue single SKU or bulk export to a platform connector."""
     from database import connector_export_enqueue, list_products
     sku = payload.get("sku")

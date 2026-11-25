@@ -1,0 +1,50 @@
+{% block omnicore_chat_workflow %}
+<sw-page class="omnicore-chat-workflow">
+  <template #smart-bar-header>
+    <h2>{{ $tc('omnicore-chat.general.mainMenuItemGeneral') }}</h2>
+    <p class="omni-sub">{{ $tc('omnicore-chat.general.descriptionTextModule') }}</p>
+  </template>
+  <template #content>
+    <sw-card-view>
+      <sw-card :title="$tc('omnicore-chat.plan.title')">
+        <sw-alert variant="info">{{ $tc('omnicore-chat.plan.scopeNotice') }}</sw-alert>
+        <sw-textarea-field v-model:value="prompt" :label="$tc('omnicore-chat.plan.prompt')" :placeholder="$tc('omnicore-chat.plan.promptPlaceholder')" />
+        <sw-text-field v-model:value="skusInput" :label="$tc('omnicore-chat.plan.skus')" placeholder="SKU1, SKU2, BND-..." />
+        <sw-button variant="primary" :isLoading="isLoading" :disabled="!canRead || !prompt.trim()" @click="createPlan">{{ $tc('omnicore-chat.actions.createPlan') }}</sw-button>
+      </sw-card>
+
+      <sw-card v-if="plan" :title="$tc('omnicore-chat.plan.previewTitle')">
+        <sw-container columns="repeat(auto-fit,minmax(180px,1fr))" gap="12px">
+          <div class="omni-kpi"><div class="omni-kpi__label">Plan ID</div><div class="omni-kpi__value small">{{ plan.plan_id }}</div></div>
+          <div class="omni-kpi"><div class="omni-kpi__label">Scope</div><div class="omni-kpi__value small"><sw-label variant="success" appearance="pill">{{ plan.channel_scope }}</sw-label></div></div>
+          <div class="omni-kpi"><div class="omni-kpi__label">Status</div><div class="omni-kpi__value small"><sw-label :variant="statusVariant(plan.status)" appearance="pill">{{ plan.status }}</sw-label></div></div>
+          <div class="omni-kpi"><div class="omni-kpi__label">Other marketplaces touched</div><div class="omni-kpi__value">0</div></div>
+        </sw-container>
+
+        <sw-alert :variant="plan.guardrails?.paangv_validated ? 'success':'warning'" class="omni-mt">{{ $tc('omnicore-chat.guardrails.paangv') }}: {{ plan.guardrails?.paangv_validated ? 'OK' : 'Check required' }}</sw-alert>
+        <sw-alert :variant="plan.guardrails?.min_margin_validated ? 'success':'warning'">{{ $tc('omnicore-chat.guardrails.margin') }}: {{ plan.guardrails?.min_margin_validated ? 'OK' : 'Check required' }}</sw-alert>
+        <sw-alert variant="info">{{ plan.summary }}</sw-alert>
+
+        <sw-data-grid
+          :dataSource="diffItems"
+          :showSelection="false"
+          :showActions="false"
+          :columns="[{property:'sku',label:'SKU'},{property:'type',label:'Type'},{property:'action_price',label:'Action price'},{property:'margin_pct',label:'Margin %'},{property:'stock',label:'Stock'},{property:'paangv_ok',label:'PAngV'},{property:'notes',label:'Notes'}]"
+        >
+          <template #column-paangv_ok="{ item }"><sw-label :variant="item.paangv_ok===false ? 'warning':'success'" appearance="pill">{{ item.paangv_ok===false ? 'no listPrice' : 'ok' }}</sw-label></template>
+          <template #column-notes="{ item }"><span>{{ (item.notes || []).join(' | ') || '—' }}</span></template>
+        </sw-data-grid>
+
+        <div class="omni-actions">
+          <sw-button variant="primary" :isLoading="isExecuting" :disabled="!canExecute || !plan.plan_id" @click="executePlan">{{ $tc('omnicore-chat.actions.confirmExecute') }}</sw-button>
+          <sw-button variant="danger" :disabled="!canExecute || !plan.plan_id" @click="rollbackPlan">{{ $tc('omnicore-chat.actions.rollback') }}</sw-button>
+          <sw-button @click="refreshPlan">{{ $tc('omnicore-chat.actions.refresh') }}</sw-button>
+        </div>
+      </sw-card>
+    </sw-card-view>
+  </template>
+</sw-page>
+{% endblock %}
+<style>
+.omni-sub{margin:4px 0 0;color:#52667a;font-size:13px}.omni-kpi{background:#f8fafc;border:1px solid #d1d9e0;border-radius:8px;padding:12px}.omni-kpi__label{font-size:12px;color:#52667a}.omni-kpi__value{font-size:22px;font-weight:600}.omni-kpi__value.small{font-size:13px}.omni-mt{margin-top:12px}.omni-actions{display:flex;gap:8px;margin-top:12px}
+</style>
