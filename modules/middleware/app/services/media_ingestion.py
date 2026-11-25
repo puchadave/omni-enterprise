@@ -3,6 +3,7 @@ import ipaddress
 import logging
 import os
 import socket
+import tempfile
 from dataclasses import dataclass, asdict
 from typing import Any, List
 from urllib.parse import urlparse
@@ -47,7 +48,17 @@ class MediaIngestionService:
         self.max_image_size = max_image_size
         self.timeout = timeout
         self.max_redirects = max_redirects
-        os.makedirs(self.download_dir, exist_ok=True)
+        try:
+            os.makedirs(self.download_dir, exist_ok=True)
+        except Exception:
+            # Read-only or missing bind mount: fall back to a writable temp dir
+            # so media ingestion never crashes the whole middleware at startup.
+            fallback = os.path.join(tempfile.gettempdir(), "omni-media")
+            try:
+                os.makedirs(fallback, exist_ok=True)
+            except Exception:
+                pass
+            self.download_dir = fallback
 
     def ingest(self, product: ProductSource) -> MediaIngestionResult:
         result = self.ingest_urls(getattr(product, "images", None) or [], sku=getattr(product, "sku", None), job_id=None)
