@@ -90,7 +90,8 @@
       "retryFailed": "Retry fehlgeschlagen.",
       "detailFailed": "Details konnten nicht vollständig geladen werden.",
       "noPermissionTitle": "Keine Berechtigung",
-      "noPermission": "Sie haben keine Berechtigung, OMNI AI Import-Daten zu lesen."
+      "noPermission": "Sie haben keine Berechtigung, OMNI AI Import-Daten zu lesen.",
+      "timeoutAsync": "Zeitüberschreitung bei der Anfrage. Der Vorgang läuft ggf. asynchron weiter; bitte Job-Status prüfen."
     }
   },
   "omnicore-chat": {

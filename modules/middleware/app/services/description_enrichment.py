@@ -24,10 +24,13 @@ class DescriptionEnrichmentService:
         desc = deterministic_description(facts)
         seo = deterministic_seo(facts, "default")
         alt_texts = [f"{product.name} - Ansicht {i + 1}" for i in range(len(product.images or []))]
+        title = str(desc.get("title") or product.name or facts.sku)[:70]
+        meta = str(seo.get("meta_description") or desc.get("short_description") or product.description or title)[:160]
+        slug = str(seo.get("slug") or facts.sku or "produkt").lower()[:200]
         return DescriptionSeoResult(
-            title=str(desc.get("title") or product.name)[:70],
-            meta_description=str(seo.get("meta_description") or product.description)[:160],
-            slug=str(seo.get("slug") or "")[:200],
+            title=title,
+            meta_description=meta,
+            slug=slug,
             alt_texts=alt_texts,
         )
 
@@ -49,11 +52,17 @@ class DescriptionEnrichmentService:
         seo_res = await run_task_json(TASK_SEO, facts=facts, prompt=seo_prompt, runtime=runtime)
         desc_out = desc_res.output if isinstance(desc_res.output, dict) else {}
         seo_out = seo_res.output if isinstance(seo_res.output, dict) else {}
-        if channel != "default":
-            # channel-specific deterministic fallback/normalization
-            seo_out.setdefault("channel", channel)
-            seo_out["seo_title"] = str(seo_out.get("seo_title") or desc_out.get("title") or facts.title or facts.sku)[:70]
-            seo_out["meta_description"] = str(seo_out.get("meta_description") or desc_out.get("short_description") or facts.description)[:160]
+        # deterministic fallback: SEO fields must never be empty
+        seo_out.setdefault("channel", channel)
+        seo_out["seo_title"] = str(seo_out.get("seo_title") or desc_out.get("title") or facts.title or facts.sku)[:70]
+        seo_out["meta_description"] = str(seo_out.get("meta_description") or desc_out.get("short_description") or facts.description or seo_out["seo_title"])[:160]
+        seo_out["slug"] = str(seo_out.get("slug") or deterministic_seo(facts, channel).get("slug") or facts.sku).lower()[:200]
+        if not seo_out.get("keywords"):
+            seo_out["keywords"] = deterministic_seo(facts, channel).get("keywords") or []
+        if not desc_out.get("title"):
+            desc_out["title"] = seo_out["seo_title"]
+        if not desc_out.get("description"):
+            desc_out["description"] = str(facts.description or seo_out["meta_description"])[:5000]
         return {
             "description": desc_out,
             "seo": seo_out,

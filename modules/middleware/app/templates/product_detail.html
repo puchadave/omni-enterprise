@@ -27,7 +27,15 @@
             <div class="bg-slate-900 border border-slate-800 p-6 rounded-xl">
                 <h4 class="text-slate-400 text-sm">Einkaufspreis</h4>
                 <p class="text-3xl font-bold text-emerald-400">{{ product.supplier_price }} €</p>
-                <p class="text-slate-500 text-sm">Marge: 95%</p>
+                {% set ek = (product.supplier_price or product.purchase_price or 0)|float %}
+                {% set vk = (product.retail_price or product.sale_price or 0)|float %}
+                {% set margin_pct = ((vk - ek) / vk * 100) if vk > 0 else 0 %}
+                <p class="text-slate-500 text-sm">Marge: {{ '%.2f'|format(margin_pct) }}% · {{ '%.2f'|format(vk - ek) }} €</p>
+                {% if product.excluded_eveningwear %}
+                <p class="text-red-400 text-sm">Ausgeschlossen: klassische Abend-/Ball-/Brautmode</p>
+                {% elif product.style_score is defined %}
+                <p class="text-slate-500 text-sm">Style-Fit: {{ product.style_score }} / 100{% if product.style_tags %} · {{ product.style_tags | join(', ') }}{% endif %}</p>
+                {% endif %}
             </div>
             <div class="bg-slate-900 border border-slate-800 p-6 rounded-xl">
                 <h4 class="text-slate-400 text-sm">Verkaufspreis</h4>

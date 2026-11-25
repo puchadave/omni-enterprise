@@ -1312,6 +1312,28 @@ async def save_setting(payload: SettingsUpdate) -> dict[str, str]:
     return {"status": "success", "message": "Setting saved."}
 
 
+def _decorate_product_view(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Attach deterministic assortment/style + margin fields for list/detail UIs."""
+    from services.assortment_profile import classify_product
+    for item in items or []:
+        try:
+            assortment = classify_product(item)
+            item["assortment_profile"] = assortment.get("assortment_profile")
+            item["style_score"] = float(assortment.get("style_score") or 0.0)
+            item["style_tags"] = list(assortment.get("style_tags") or [])
+            item["is_formal_eveningwear"] = bool(assortment.get("is_formal_eveningwear"))
+            item["excluded_eveningwear"] = bool(assortment.get("excluded_eveningwear"))
+            item["exclusion_reason"] = assortment.get("exclusion_reason") or ""
+            ek = float(item.get("supplier_price") or item.get("purchase_price") or 0)
+            vk = float(item.get("sale_price") or item.get("retail_price") or item.get("price") or 0)
+            if ek > 0 and vk > 0:
+                item["margin_abs"] = round(vk - ek, 2)
+                item["margin_pct"] = round((vk - ek) / vk * 100.0, 2)
+        except Exception:
+            continue
+    return items
+
+
 @app.get("/api/products")
 async def products(
     limit: int = Query(default=100, ge=1, le=500),
@@ -1332,6 +1354,7 @@ async def products(
         items = await list_products(limit, offset)
     else:
         items = await list_products(limit=limit, offset=offset, q=q, status=status, category=category, brand=brand, has_image=has_image, in_stock=in_stock)
+    _decorate_product_view(items)
     if include_total:
         total = await count_products(q=q, status=status, category=category, brand=brand, has_image=has_image, in_stock=in_stock)
         return {"items": items, "total": total, "limit": limit, "offset": offset}
@@ -1358,6 +1381,7 @@ async def product(sku: str) -> dict[str, Any]:
     item = await fetch_product(sku)
     if item is None:
         raise HTTPException(status_code=404, detail="Product not found.")
+    _decorate_product_view([item])
     return item
 
 @app.put("/api/products/{sku}")
@@ -4528,6 +4552,12 @@ async def pi_default_config(user: dict[str, Any] = Depends(require_permission("p
     stored = await pi_get_default_scoring_config()
     cfg = merge_config((stored or {}).get("config_json") if stored else None)
     return {"status":"ok","config":cfg,"stored":bool(stored)}
+
+
+@app.get("/api/product-intelligence/assortment/profile")
+async def pi_assortment_profile(name: str | None = Query(default=None), user: dict[str, Any] = Depends(require_permission("products.read"))):
+    from services.assortment_profile import profile_public
+    return {"status": "ok", "profile": profile_public(name), "env_profile": os.getenv("SHOPWARE_ASSORTMENT_PROFILE", "clubwear_sexy")}
 
 
 @app.post("/api/product-intelligence/config")

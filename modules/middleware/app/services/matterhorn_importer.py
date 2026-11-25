@@ -1,6 +1,7 @@
 """Matterhorn product importer: lossless multi-format preview/import with sync rules."""
 
 from __future__ import annotations
+import math
 
 import csv
 import hashlib
@@ -8,6 +9,7 @@ import io
 import json
 import logging
 import os
+import re
 import uuid
 import xml.etree.ElementTree as ET
 from typing import Any, Dict, List, Optional, Tuple
@@ -25,6 +27,7 @@ from database import (
     write_log,
 )
 from services.media_ingestion import MediaIngestionService
+from services.assortment_profile import classify_product
 
 logger = logging.getLogger(__name__)
 
@@ -63,11 +66,56 @@ async def _publish_import_event(event_type: str, payload: dict) -> None:
 
 def _to_float(v: Any, default: float = 0.0) -> float:
     try:
-        if v is None or v == "":
-            return default
-        return float(str(v).replace(",", ".").strip())
+        if v is None or v == "": return default
+        if isinstance(v, (int, float)): return float(v)
+        s = str(v).strip().replace("€","").replace(" ","")
+        # 1.234,56 or 1,23
+        if s.count(",") == 1 and s.count(".") >= 1 and s.rfind(",") > s.rfind("."):
+            s = s.replace(".","").replace(",",".")
+        elif s.count(",") == 1 and s.count(".") == 0:
+            s = s.replace(",",".")
+        return float(s)
     except Exception:
         return default
+
+
+def _psychological_round(price: float, mode: str = "point_99") -> float:
+    if price <= 0:
+        return 0.0
+    if mode == "point_95":
+        return max(0.0, math.floor(price) + 0.95) if price >= 1 else round(price, 2)
+    if price < 1:
+        return round(price, 2)
+    base = math.floor(price)
+    candidate = base + 0.99
+    if candidate < price - 0.5:
+        candidate = base + 1.99
+    return round(candidate, 2)
+
+
+def calculate_vk_from_ek(ek_net: float, *, tax_rate: float = 19.0, target_margin_pct: float | None = None, min_margin_pct: float | None = None, rounding: str | None = None) -> dict[str, float]:
+    ek = max(0.0, _to_float(ek_net, 0.0))
+    tax = _to_float(tax_rate, 19.0)
+    if tax < 0: tax = 19.0
+    target = _to_float(os.getenv("DEFAULT_TARGET_MARGIN_PCT", "30"), 30.0) if target_margin_pct is None else _to_float(target_margin_pct, 30.0)
+    min_m = _to_float(os.getenv("MIN_MARGIN_PCT", "12"), 12.0) if min_margin_pct is None else _to_float(min_margin_pct, 12.0)
+    round_mode = (rounding or os.getenv("PRICE_ROUNDING_MODE", "point_99")).strip().lower()
+    target = max(min_m, min(target, 95.0))
+    min_m = max(0.0, min(min_m, 95.0))
+    if ek <= 0:
+        return {"ek_net": 0.0, "vk_net": 0.0, "vk_brutto": 0.0, "margin_abs": 0.0, "margin_pct": 0.0, "tax_rate": tax}
+    vk_net = ek / (1 - (target / 100.0))
+    vk_brutto = _psychological_round(vk_net * (1 + tax / 100.0), round_mode)
+    vk_net = vk_brutto / (1 + tax / 100.0)
+    margin_abs = vk_net - ek
+    margin_pct = (margin_abs / vk_net * 100.0) if vk_net > 0 else 0.0
+    if margin_pct < min_m and vk_net > 0:
+        vk_net = ek / (1 - (min_m / 100.0))
+        vk_brutto = _psychological_round(vk_net * (1 + tax / 100.0), round_mode)
+        vk_net = vk_brutto / (1 + tax / 100.0)
+        margin_abs = vk_net - ek
+        margin_pct = (margin_abs / vk_net * 100.0) if vk_net > 0 else 0.0
+    return {"ek_net": round(ek, 4), "vk_net": round(vk_net, 4), "vk_brutto": round(vk_brutto, 2), "margin_abs": round(margin_abs, 4), "margin_pct": round(margin_pct, 2), "tax_rate": round(tax, 2)}
 
 
 def _to_int(v: Any, default: int = 0) -> int:
@@ -301,9 +349,10 @@ def _normalize_product(raw: dict[str, Any], *, source_system: str = "matterhorn"
     if isinstance(extra_cats, list) and extra_cats:
         categories = [_as_text(c) for c in extra_cats if _as_text(c)]
 
-    # prices: support <prices><price currency="EUR">..</price></prices> or simple fields
-    supplier_price = _to_float(get("supplier_price","purchase_price","ek","ekp","ek_price", default=0), 0.0)
-    sale_price = _to_float(get("sale_price","retail_price","uvp","vk", default=0), 0.0)
+    # prices: EK (purchase) and VK (sale) must stay separate
+    supplier_price = _to_float(get("supplier_price","purchase_price","ek","ekp","ek_price","buy_price","cost","cost_price", default=0), 0.0)
+    sale_price = _to_float(get("sale_price","retail_price","vk","selling_price","sell_price", default=0), 0.0)
+    compare = _to_float(get("compare_at_price","uvp","recommended_retail_price","rrp","msrp","list_price", default=0), 0.0)
     currency = _as_text(get("currency", default="EUR") or "EUR")
     prices_raw = get("prices","price", default=None)
     def _price_collect(obj):
@@ -312,42 +361,54 @@ def _normalize_product(raw: dict[str, Any], *, source_system: str = "matterhorn"
         if isinstance(obj, list):
             for it in obj: items.extend(_price_collect(it))
         elif isinstance(obj, dict):
-            lk = _lower_map(obj)
-            if "price" in lk and ("currency" not in lk and "@currency" not in lk):
-                items.extend(_price_collect(lk.get("price")))
-            elif "currency" in lk or "@currency" in lk or "_text" in lk or "value" in lk or "#text" in lk:
-                cur = _as_text(obj.get("@currency") or obj.get("currency") or currency or "EUR")
-                amt = _as_text(obj.get("_text") or obj.get("value") or obj.get("#text") or obj.get("amount") or 0)
-                if amt != "":
-                    items.append((cur.upper(), _to_float(amt, 0.0)))
-            else:
-                # maybe {"EUR": 1.2} or nested
-                scalars = {k:v for k,v in obj.items() if not isinstance(v,(dict,list))}
-                nonscal = {k:v for k,v in obj.items() if isinstance(v,(dict,list))}
-                if scalars and not nonscal:
-                    for k,v in scalars.items():
-                        if str(k).startswith('@'): continue
-                        if str(k).lower() in {"type","kind","name"}: continue
-                        items.append((str(k).upper(), _to_float(v,0.0)))
-                for v in obj.values(): items.extend(_price_collect(v))
+            ptype = str(obj.get("type") or obj.get("@type") or obj.get("price_type") or obj.get("kind") or "").lower()
+            cur = _as_text(obj.get("@currency") or obj.get("currency") or obj.get("currency_code") or currency or "EUR")
+            amt = obj.get("_text") or obj.get("value") or obj.get("#text") or obj.get("amount") or obj.get("net") or obj.get("gross") or obj.get("price")
+            if isinstance(amt, dict): amt = amt.get("amount") or amt.get("value") or amt.get("#text")
+            if amt is not None and str(amt).strip()!="":
+                try: items.append((str(cur).upper(), _to_float(amt, 0.0), ptype))
+                except Exception: pass
+            for v in obj.values():
+                if isinstance(v,(dict,list)): items.extend(_price_collect(v))
         elif isinstance(obj, (str,int,float)) and str(obj).strip() != "":
-            items.append((currency.upper(), _to_float(obj, 0.0)))
+            items.append((currency.upper(), _to_float(obj, 0.0), ""))
         return items
-    pitems = _price_collect(prices_raw)
-    if pitems:
-        chosen = next((amt for cur,amt in pitems if cur=="EUR" and amt>0), None)
-        if chosen is None:
-            chosen = next((amt for _,amt in pitems if amt>0), pitems[0][1])
-        if chosen and chosen>0:
-            if sale_price <= 0: sale_price = chosen
-            if supplier_price <= 0: supplier_price = chosen
-        if sale_price <= 0:
-            simple = _to_float(get("price", default=0), 0.0)
-            if simple>0: sale_price = simple
+    for cur, amt, ptype in _price_collect(prices_raw):
+        if amt <= 0 or (cur and cur not in ("EUR","")): continue
+        if any(k in ptype for k in ("ek","buy","purchase","cost")) and supplier_price <= 0: supplier_price = amt
+        elif any(k in ptype for k in ("vk","sale","retail","sell","uvp","rrp","msrp")) and sale_price <= 0: sale_price = amt
+    simple_price = _to_float(get("price", default=0), 0.0)
+    if supplier_price <= 0 and simple_price > 0: supplier_price = simple_price
+    if sale_price <= 0 and compare > 0: sale_price = compare
+    tax_rate = _to_float(get("tax","tax_rate","vat","mwst","mwst_rate","taxrate", default=19.0), 19.0)
+    if tax_rate <= 1: tax_rate = tax_rate * 100
+    if tax_rate <= 0 or tax_rate > 50: tax_rate = 19.0
+    if supplier_price > 0 and (sale_price <= 0 or abs(sale_price - supplier_price) < 0.0001):
+        calc = calculate_vk_from_ek(supplier_price, tax_rate=tax_rate)
+        sale_price = float(calc["vk_brutto"])
+    elif supplier_price > 0 and sale_price > 0:
+        vk_net = sale_price / (1 + tax_rate/100.0)
+        margin_pct_now = ((vk_net - supplier_price) / vk_net * 100.0) if vk_net > 0 else -100
+        min_m = _to_float(os.getenv("MIN_MARGIN_PCT", "12"), 12.0)
+        if margin_pct_now < min_m:
+            calc = calculate_vk_from_ek(supplier_price, tax_rate=tax_rate)
+            sale_price = float(calc["vk_brutto"])
+    margin_abs = round((sale_price/(1+tax_rate/100.0)) - supplier_price, 4) if supplier_price > 0 and sale_price > 0 else 0.0
+    margin_pct = round((margin_abs / (sale_price/(1+tax_rate/100.0)) * 100.0), 2) if sale_price > 0 and supplier_price > 0 else 0.0
+
+    # deterministic SEO fallback at normalization time (never leave SEO fields empty)
+    _seo_base_title = (title or sku or external_id or "").strip()
+    _seo_base_desc = (short_description or description or _seo_base_title).strip()
+    seo_title = (_as_text(get("seo_title","meta_title", default="")).strip() or _seo_base_title)[:70]
+    meta_description = (_as_text(get("meta_description","meta_desc", default="")).strip() or _seo_base_desc)[:160]
+    _keywords_raw = get("keywords","tags","suchbegriffe", default=[])
+    if isinstance(_keywords_raw, str):
+        keywords = [k.strip() for k in re.split(r"[,;|]", _keywords_raw) if k.strip()]
+    elif isinstance(_keywords_raw, list):
+        keywords = [str(k).strip() for k in _keywords_raw if str(k).strip()]
     else:
-        simple = _to_float(get("price", default=0), 0.0)
-        if simple>0 and sale_price <= 0: sale_price = simple
-        if simple>0 and supplier_price <= 0: supplier_price = simple
+        keywords = []
+    slug = _as_text(get("slug","url_key", default="")).strip() or re.sub(r"[^a-z0-9]+", "-", _seo_base_title.lower()).strip("-")[:120] or sku.lower()
 
     raw_stock = _to_int(get("stock","stock_quantity","quantity","qty","bestand","vorrat","supplier_stock", default=0), 0)
     stock_quantity = _to_int(get("stock_quantity","stock","quantity","qty","bestand","vorrat", default=raw_stock), raw_stock)
@@ -486,6 +547,18 @@ def _normalize_product(raw: dict[str, Any], *, source_system: str = "matterhorn"
         else:
             attributes.append({"name": str(k), "value": "" if v is None else str(v), "source_field": str(k), "is_filterable": True})
 
+    assortment = classify_product({
+        "title": title or sku,
+        "category": category_str,
+        "categories": categories,
+        "description": description,
+        "short_description": short_description,
+        "keywords": keywords,
+        "brand": str(get("brand","marke", default="")),
+        "manufacturer": str(get("manufacturer","hersteller", default="")),
+        "attributes": attributes,
+    })
+
     product = {
         "sku": sku,
         "external_matterhorn_id": external_id or sku,
@@ -497,11 +570,26 @@ def _normalize_product(raw: dict[str, Any], *, source_system: str = "matterhorn"
         "categories": categories,
         "short_description": short_description,
         "raw_description": description,
+        "seo_title": seo_title,
+        "meta_description": meta_description,
+        "slug": slug,
+        "keywords": keywords,
+        "assortment_profile": assortment.get("assortment_profile"),
+        "style_score": assortment.get("style_score", 0.0),
+        "style_tags": assortment.get("style_tags", []),
+        "is_formal_eveningwear": bool(assortment.get("is_formal_eveningwear")),
+        "excluded_eveningwear": bool(assortment.get("excluded_eveningwear")),
+        "exclusion_reason": assortment.get("exclusion_reason", ""),
         "supplier_price": supplier_price,
         "purchase_price": supplier_price,
         "sale_price": sale_price,
-        "compare_at_price": _to_float(get("compare_at_price","uvp", default=0), 0.0),
-        "tax_rate": _to_float(get("tax_rate","tax","mwst", default=0), 0.0),
+        "vk_brutto": round(sale_price, 2),
+        "ek_net": round(supplier_price, 4),
+        "margin_abs": margin_abs,
+        "margin_pct": margin_pct,
+        "compare_at_price": compare,
+        "tax_rate": tax_rate,
+        "tax": tax_rate,
         "currency": str(get("currency", default="EUR") or "EUR"),
         "stock": stock_quantity,
         "stock_quantity": stock_quantity,
@@ -528,9 +616,6 @@ def _normalize_product(raw: dict[str, Any], *, source_system: str = "matterhorn"
         "gallery_json": images,
         "videos_json": (lambda v: v if isinstance(v,list) else ([v] if isinstance(v,dict) and v else list(v.values()) if isinstance(v,dict) else ([] if not v else [v])))(get("videos", default=[])),
         "documents_json": (lambda v: v if isinstance(v,list) else ([v] if isinstance(v,dict) and v else list(v.values()) if isinstance(v,dict) else ([] if not v else [v])))(get("documents", default=[])),
-        "seo_title": str(get("seo_title", default="")),
-        "meta_description": str(get("meta_description", default="")),
-        "slug": str(get("slug", default="")),
         "canonical_url": str(get("canonical_url", default="")),
         "marketplace_mappings_json": get("marketplace_mappings_json","marketplace_mappings", default={}),
         "source_system": source_system,
@@ -779,7 +864,16 @@ class MatterhornUniversalImporter:
                     if media.get("errors"):
                         issues.append({"sku": sku, "reason": "image_partial_failure", "image_errors": media.get("errors"), "downloaded": len(media.get("assets") or [])})
 
-                    src_hash = hashlib.sha256(json.dumps({"sku": sku, "ext": product_payload.get("external_matterhorn_id"), "title": product_payload.get("title"), "price": product_payload.get("supplier_price"), "sale": product_payload.get("sale_price"), "stock": raw_stock, "ean": product_payload.get("ean"), "cat": product_payload.get("category"), "attrs": product_payload.get("attributes"), "vars": product_payload.get("variants"), "main_image_url": product_payload.get("main_image_url"), "gallery_json": product_payload.get("gallery_json"), "log": {k: product_payload.get(k) for k in ("warehouse_location","bin_code","hs_code","country_of_origin","weight_net_kg","weight_gross_kg","length_cm","width_cm","height_cm","lead_time_days","reorder_level")}}, sort_keys=True, ensure_ascii=False, default=str).encode("utf-8")).hexdigest()
+                    # deterministic SEO fallback: never leave SEO empty
+                    if not str(product_payload.get("seo_title") or "").strip():
+                        product_payload["seo_title"] = str(product_payload.get("title") or sku)[:70]
+                    if not str(product_payload.get("meta_description") or "").strip():
+                        src_desc = str(product_payload.get("short_description") or product_payload.get("raw_description") or product_payload.get("title") or sku)
+                        product_payload["meta_description"] = src_desc[:160]
+                    if not str(product_payload.get("slug") or "").strip():
+                        product_payload["slug"] = re.sub(r"[^a-z0-9]+", "-", str(product_payload.get("title") or sku).lower()).strip("-")[:120] or sku.lower()
+
+                    src_hash = hashlib.sha256(json.dumps({"sku": sku, "ext": product_payload.get("external_matterhorn_id"), "title": product_payload.get("title"), "price": product_payload.get("supplier_price"), "sale": product_payload.get("sale_price"), "stock": raw_stock, "ean": product_payload.get("ean"), "cat": product_payload.get("category"), "attrs": product_payload.get("attributes"), "vars": product_payload.get("variants"), "main_image_url": product_payload.get("main_image_url"), "gallery_json": product_payload.get("gallery_json"), "seo_title": product_payload.get("seo_title"), "meta_description": product_payload.get("meta_description"), "slug": product_payload.get("slug"), "log": {k: product_payload.get(k) for k in ("warehouse_location","bin_code","hs_code","country_of_origin","weight_net_kg","weight_gross_kg","length_cm","width_cm","height_cm","lead_time_days","reorder_level")}}, sort_keys=True, ensure_ascii=False, default=str).encode("utf-8")).hexdigest()
                     product_payload["source_hash"] = src_hash
 
                     res = await upsert_product_aggregate(product_payload, sync_rules=eff_rules)

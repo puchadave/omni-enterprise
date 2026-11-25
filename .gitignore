@@ -28,3 +28,8 @@ modules/shopware/integration/live/
 
 # local mcp/dev artifacts
 sqlite_mcp_server.db
+
+# local middleware sqlite artifacts
+middleware.db
+middleware.db-shm
+middleware.db-wal

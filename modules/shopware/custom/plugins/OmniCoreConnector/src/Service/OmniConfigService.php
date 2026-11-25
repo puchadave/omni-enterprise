@@ -53,9 +53,19 @@ class OmniConfigService
     {
         $value = $this->systemConfig->get(self::PREFIX . 'timeoutSeconds');
         if (!is_numeric($value)) {
-            return 10;
+            return 120;
         }
         $int = (int) $value;
-        return $int > 0 ? $int : 10;
+        return $int > 0 ? $int : 120;
+    }
+
+    public function adminTimeoutSeconds(): int
+    {
+        $value = $this->systemConfig->get(self::PREFIX . 'adminTimeoutSeconds');
+        if (!is_numeric($value)) {
+            return 120;
+        }
+        $int = (int) $value;
+        return $int > 0 ? $int : 120;
     }
 }

@@ -22,23 +22,25 @@ class AiImportJobService
     {
         $mode = in_array($mode, ['selected', 'filter', 'retry_failed'], true) ? $mode : 'selected';
         $skus = $this->normalizeSkus($skus);
-        if ($mode === 'filter' || ($mode === 'selected' && $skus === [] && $filters !== [])) {
-            $candidates = $this->middleware->getCandidates($this->candidateQueryFromFilters($filters));
-            $items = is_array($candidates['items'] ?? null) ? $candidates['items'] : [];
-            $skus = $this->normalizeSkus(array_map(fn($i) => is_array($i) ? (string) ($i['sku'] ?? '') : '', $items));
+        $resolveFiltersAsync = ($mode === 'filter' || ($mode === 'selected' && $skus === [] && $filters !== []));
+        if ($resolveFiltersAsync) {
+            // Resolve filter in background handler to keep admin response <2s.
+            $skus = [];
         }
-        if ($skus === []) {
+        if (!$resolveFiltersAsync && $skus === []) {
             throw new \InvalidArgumentException('No SKUs selected for import');
         }
 
         $now = (new \DateTimeImmutable())->format(Defaults::STORAGE_DATE_TIME_FORMAT);
         $jobId = Uuid::randomBytes();
         $jobIdHex = Uuid::fromBytesToHex($jobId);
+        $jobFilters = $filters;
+        $jobFilters['_resolve_async'] = $resolveFiltersAsync;
         $this->connection->insert('omnicore_ai_import_job', [
             'id' => $jobId,
             'status' => 'queued',
             'mode' => $mode,
-            'filters_json' => json_encode($filters, JSON_UNESCAPED_UNICODE),
+            'filters_json' => json_encode($jobFilters, JSON_UNESCAPED_UNICODE),
             'requested_by' => mb_substr($requestedBy, 0, 255),
             'total_items' => count($skus),
             'processed_items' => 0,
@@ -46,7 +48,7 @@ class AiImportJobService
             'failed_items' => 0,
             'skipped_items' => 0,
             'error_summary' => null,
-            'result_json' => null,
+            'result_json' => json_encode(['resolve_filters_async' => $resolveFiltersAsync], JSON_UNESCAPED_UNICODE),
             'started_at' => null,
             'finished_at' => null,
             'created_at' => $now,
@@ -54,27 +56,32 @@ class AiImportJobService
         ]);
 
         foreach ($skus as $sku) {
-            $itemId = Uuid::randomBytes();
-            $idem = hash('sha256', $jobIdHex . '|' . $sku . '|import');
-            $this->connection->insert('omnicore_ai_import_job_item', [
-                'id' => $itemId,
-                'job_id' => $jobId,
-                'sku' => $sku,
-                'status' => 'pending',
-                'attempts' => 0,
-                'idempotency_key' => $idem,
-                'middleware_status' => null,
-                'shopware_product_id' => null,
-                'error_message' => null,
-                'result_json' => null,
-                'processed_at' => null,
-                'created_at' => $now,
-                'updated_at' => $now,
-            ]);
+            $this->insertJobItem($jobId, $jobIdHex, $sku, $now);
         }
 
         $this->bus->dispatch(new ProcessAiImportJobMessage($jobIdHex));
         return $this->getJob($jobIdHex);
+    }
+
+    private function insertJobItem(string $jobId, string $jobIdHex, string $sku, string $now): void
+    {
+        $itemId = Uuid::randomBytes();
+        $idem = hash('sha256', $jobIdHex . '|' . $sku . '|import');
+        $this->connection->insert('omnicore_ai_import_job_item', [
+            'id' => $itemId,
+            'job_id' => $jobId,
+            'sku' => $sku,
+            'status' => 'pending',
+            'attempts' => 0,
+            'idempotency_key' => $idem,
+            'middleware_status' => null,
+            'shopware_product_id' => null,
+            'error_message' => null,
+            'result_json' => null,
+            'processed_at' => null,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
     }
 
     /** @return array<string,mixed> */
@@ -123,6 +130,21 @@ class AiImportJobService
             'UPDATE omnicore_ai_import_job SET status = :status, started_at = COALESCE(started_at, :startedAt), updated_at = :updatedAt WHERE id = :id AND status IN ("queued","running")',
             ['status' => 'running', 'startedAt' => $now(), 'updatedAt' => $now(), 'id' => $jobId]
         );
+
+        $job = $this->getJob($jobIdHex);
+        $filters = is_array($job['filters_json'] ?? null) ? $job['filters_json'] : [];
+        if (($filters['_resolve_async'] ?? false) === true) {
+            $resolved = $this->resolveFilterSkus($filters);
+            foreach ($resolved as $sku) {
+                $this->insertJobItem($jobId, $jobIdHex, $sku, $now());
+            }
+            $filters['_resolve_async'] = false;
+            $this->connection->update('omnicore_ai_import_job', [
+                'filters_json' => json_encode($filters, JSON_UNESCAPED_UNICODE),
+                'total_items' => count($resolved),
+                'updated_at' => $now(),
+            ], ['id' => $jobId]);
+        }
 
         $items = $this->connection->fetchAllAssociative(
             'SELECT id, sku, status, attempts, idempotency_key FROM omnicore_ai_import_job_item WHERE job_id = :jobId AND status IN ("pending","retry_scheduled","failed") ORDER BY created_at ASC',
@@ -238,6 +260,14 @@ class AiImportJobService
         }
         if (!isset($q['limit'])) $q['limit'] = min(500, max(1, (int) ($filters['limit'] ?? 100)));
         return $q;
+    }
+
+    /** @return string[] */
+    private function resolveFilterSkus(array $filters): array
+    {
+        $candidates = $this->middleware->getCandidates($this->candidateQueryFromFilters($filters));
+        $items = is_array($candidates['items'] ?? null) ? $candidates['items'] : [];
+        return $this->normalizeSkus(array_map(fn($i) => is_array($i) ? (string) ($i['sku'] ?? '') : '', $items));
     }
 
     /** @param array<string,mixed> $row @return array<string,mixed> */

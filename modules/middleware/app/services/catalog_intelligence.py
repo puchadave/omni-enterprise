@@ -4,9 +4,11 @@ Slice 1: OMNI-CORE DB as source of truth. No external writes. Configurable scori
 """
 from __future__ import annotations
 
-import json, math, uuid, hashlib
+import json, math, os, uuid, hashlib
 from datetime import datetime, timezone
 from typing import Any
+
+from .assortment_profile import classify_product, get_profile, get_profile_name
 
 DEFAULT_WEIGHTS = {
     "data_quality": 15,
@@ -18,9 +20,11 @@ DEFAULT_WEIGHTS = {
     "cross_selling": 10,
     "seo_potential": 10,
     "freshness": 5,
+    "style_fit": 15,
 }
 DEFAULT_CONFIG = {
     "weights": DEFAULT_WEIGHTS.copy(),
+    "assortment_profile": os.getenv("SHOPWARE_ASSORTMENT_PROFILE", "clubwear_sexy"),
     "min_score": 0,
     "target_count": 600,
     "min_count": 500,
@@ -85,6 +89,8 @@ def merge_config(cfg: dict[str, Any] | None) -> dict[str, Any]:
     out["min_score"] = _clamp(_safe_float(out.get("min_score"), 0))
     out["category_max_share"] = max(0.05, min(1.0, _safe_float(out.get("category_max_share"), 0.35)))
     out["category_min_share"] = max(0.0, min(out["category_max_share"], _safe_float(out.get("category_min_share"), 0.0)))
+    out["assortment_profile"] = get_profile_name(str(out.get("assortment_profile") or ""))
+    out["min_style_score"] = _clamp(_safe_float(out.get("min_style_score"), get_profile(out["assortment_profile"]).get("min_style_score", 0.0)))
     return out
 
 def score_product(p: dict[str, Any], cfg: dict[str, Any], category_counts: dict[str, int] | None = None) -> dict[str, Any]:
@@ -111,6 +117,11 @@ def score_product(p: dict[str, Any], cfg: dict[str, Any], category_counts: dict[
         try: tags = json.loads(tags)
         except Exception: tags = []
 
+    # Two-stage assortment evaluation (stage 1 deterministic; hard exclusion of evening wear)
+    assortment = classify_product(p, cfg.get("assortment_profile"))
+    style_score = float(assortment.get("style_score") or 0.0)
+    style_tags = list(assortment.get("style_tags") or [])
+
     # Exclusions
     if cfg["exclude_no_name"] and not title: exclusions.append("missing_name")
     if cfg["exclude_no_price"] and price <= 0: exclusions.append("missing_price")
@@ -118,6 +129,8 @@ def score_product(p: dict[str, Any], cfg: dict[str, Any], category_counts: dict[
     if cfg["exclude_no_images"] and not has_img: exclusions.append("missing_images")
     if cfg["exclude_inactive"] and status not in ("active", ""): exclusions.append(f"status_{status}")
     if cfg["require_stock"] and stock <= 0: exclusions.append("out_of_stock")
+    if assortment.get("excluded_eveningwear"):
+        exclusions.append("excluded_eveningwear")
     # duplicate marker - caller can set
     if cfg["exclude_duplicates"] and p.get("_is_duplicate"): exclusions.append("duplicate")
 
@@ -172,6 +185,7 @@ def score_product(p: dict[str, Any], cfg: dict[str, Any], category_counts: dict[
         "data_quality": round(dq,2), "content_quality": round(content,2), "media_quality": round(media,2),
         "price_margin": round(margin,2), "availability": round(availability,2), "category_relevance": round(cat_rel,2),
         "cross_selling": round(cross,2), "seo_potential": round(seo,2), "freshness": round(freshness,2),
+        "style_fit": round(style_score,2),
     }
     total = sum(criteria[k] * weights.get(k, 0) / 100.0 for k in DEFAULT_WEIGHTS)
     total = round(_clamp(total), 2)
@@ -181,12 +195,22 @@ def score_product(p: dict[str, Any], cfg: dict[str, Any], category_counts: dict[
     if availability >= 80: reasons.append("good_availability")
     if media >= 60: reasons.append("media_ready")
     if content >= 60: reasons.append("content_ready")
+    if style_score >= 70: reasons.append("strong_clubwear_fit")
+    elif style_score >= cfg.get("min_style_score", 0): reasons.append("clubwear_fit")
+    if assortment.get("excluded_eveningwear"):
+        reasons.append("excluded_eveningwear")
     if exclusions: reasons.append("excluded")
 
     return {
         "sku": sku, "title": title, "category": cat, "status": status,
         "score": total, "eligible": len(exclusions) == 0 and total >= cfg["min_score"],
         "exclusions": exclusions, "reasons": reasons, "criteria": criteria, "weights": weights,
+        "assortment_profile": assortment.get("assortment_profile"),
+        "style_score": style_score,
+        "style_tags": style_tags,
+        "is_formal_eveningwear": bool(assortment.get("is_formal_eveningwear")),
+        "excluded_eveningwear": bool(assortment.get("excluded_eveningwear")),
+        "exclusion_reason": assortment.get("exclusion_reason", ""),
     }
 
 def select_products(scored: list[dict[str, Any]], cfg: dict[str, Any]) -> dict[str, Any]:
@@ -200,12 +224,12 @@ def select_products(scored: list[dict[str, Any]], cfg: dict[str, Any]) -> dict[s
 
     # sort
     if mode == "quality":
-        eligible.sort(key=lambda x: (-x["score"], x.get("sku","")))
+        eligible.sort(key=lambda x: (-x["score"], -x.get("style_score", 0), x.get("sku","")))
         # stricter minimum score floor for quality mode
         qfloor = max(cfg["min_score"], 65)
         eligible = [s for s in eligible if s["score"] >= qfloor]
     elif mode == "expansion":
-        eligible.sort(key=lambda x: (x.get("category",""), -x["score"]))
+        eligible.sort(key=lambda x: (x.get("category",""), -x["score"], -x.get("style_score", 0)))
         # round-robin by category for breadth
         by_cat: dict[str, list[dict]] = {}
         for s in eligible:
@@ -223,7 +247,7 @@ def select_products(scored: list[dict[str, Any]], cfg: dict[str, Any]) -> dict[s
             idx += 1
         eligible = rr
     else: # automatic - score first, diversify by cap
-        eligible.sort(key=lambda x: (-x["score"], x.get("sku","")))
+        eligible.sort(key=lambda x: (-x["score"], -x.get("style_score", 0), x.get("sku","")))
 
     selected: list[dict[str, Any]] = []
     cat_counts: dict[str, int] = {}
@@ -265,6 +289,9 @@ def select_products(scored: list[dict[str, Any]], cfg: dict[str, Any]) -> dict[s
         "min_count": min_c, "target_count": target, "max_count": max_c,
         "category_distribution": cat_counts,
         "exclusion_counts": excl_counts,
+        "assortment_profile": cfg.get("assortment_profile"),
+        "style_avg_selected": round(sum(float(s.get("style_score") or 0) for s in selected) / len(selected), 2) if selected else 0.0,
+        "excluded_eveningwear_count": sum(1 for s in scored if s.get("excluded_eveningwear")),
         "message": (
             f"Selection has {len(selected)} products; below minimum {min_c}. Quality thresholds were not lowered."
             if insufficient else f"Selected {len(selected)} products."
@@ -288,6 +315,9 @@ def build_report(run: dict[str, Any], scored: list[dict[str, Any]], selection: d
         },
         "category_distribution": selection["category_distribution"],
         "exclusion_counts": selection["exclusion_counts"],
-        "top_selected": [{"sku": s["sku"], "title": s["title"], "score": s["score"], "category": s["category"]} for s in selection["selected"][:20]],
+        "assortment_profile": cfg.get("assortment_profile"),
+        "style_avg_selected": selection.get("style_avg_selected", 0.0),
+        "excluded_eveningwear_count": selection.get("excluded_eveningwear_count", 0),
+        "top_selected": [{"sku": s["sku"], "title": s["title"], "score": s["score"], "category": s["category"], "style_score": s.get("style_score", 0), "style_tags": s.get("style_tags", [])} for s in selection["selected"][:20]],
         "message": selection["message"],
     }

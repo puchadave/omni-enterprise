@@ -90,7 +90,8 @@
       "retryFailed": "Retry failed.",
       "detailFailed": "Could not fully load details.",
       "noPermissionTitle": "No permission",
-      "noPermission": "You do not have permission to read OMNI AI Import data."
+      "noPermission": "You do not have permission to read OMNI AI Import data.",
+      "timeoutAsync": "Request timed out. The operation may continue asynchronously; please check job status."
     }
   },
   "omnicore-chat": {

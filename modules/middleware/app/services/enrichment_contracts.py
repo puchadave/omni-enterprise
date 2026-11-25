@@ -21,6 +21,12 @@ class CatalogValidationResult:
     is_valid: bool
     errors: List[str]
     warnings: List[str]
+    assortment_profile: str = ""
+    style_score: float = 0.0
+    style_tags: List[str] = field(default_factory=list)
+    is_formal_eveningwear: bool = False
+    excluded_eveningwear: bool = False
+    exclusion_reason: str = ""
 
 
 @dataclass

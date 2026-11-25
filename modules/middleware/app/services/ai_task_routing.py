@@ -17,7 +17,8 @@ TASK_DESCRIPTION = "description"
 TASK_SEO = "seo"
 TASK_VISION_ALT = "vision_alt_text"
 TASK_MARKETPLACE = "marketplace_dataset"
-ALL_TASKS = [TASK_FACTS, TASK_DESCRIPTION, TASK_SEO, TASK_VISION_ALT, TASK_MARKETPLACE]
+TASK_STYLE_SCORING = "style_scoring"
+ALL_TASKS = [TASK_FACTS, TASK_DESCRIPTION, TASK_SEO, TASK_VISION_ALT, TASK_MARKETPLACE, TASK_STYLE_SCORING]
 
 
 def canonical_json(value: Any) -> str:
@@ -51,6 +52,7 @@ DEFAULT_PROFILES: dict[str, AITaskProfile] = {
     TASK_SEO: AITaskProfile(TASK_SEO, ["gpt-4.1-mini", "gemini-2.0-flash", "auto"], ["auto"], temperature=0.2, max_tokens=700),
     TASK_VISION_ALT: AITaskProfile(TASK_VISION_ALT, ["gpt-4.1-mini", "gemini-2.0-flash", "auto"], ["auto"], capability="image_analysis", temperature=0.1, max_tokens=500),
     TASK_MARKETPLACE: AITaskProfile(TASK_MARKETPLACE, ["gpt-4.1-mini", "auto"], ["auto"], temperature=0.2, max_tokens=1600),
+    TASK_STYLE_SCORING: AITaskProfile(TASK_STYLE_SCORING, ["gpt-4.1-mini", "gemini-2.0-flash", "auto"], ["auto"], temperature=0.0, max_tokens=500),
 }
 
 
@@ -276,6 +278,10 @@ async def run_task_json(
             out = deterministic_seo(facts, "default")
         elif task == TASK_VISION_ALT:
             out = {"alt_texts": deterministic_alt_texts(facts), "facts_hash": fh, "model": "deterministic_fallback", "prompt_version": "fallback-v1"}
+        elif task == TASK_STYLE_SCORING:
+            from .assortment_profile import deterministic_style_from_facts
+            out = deterministic_style_from_facts(facts)
+            out.update({"facts_hash": fh, "model": "deterministic_fallback", "prompt_version": "fallback-v1"})
         else:
             out = {"facts_hash": fh, "model": "deterministic_fallback", "prompt_version": "fallback-v1", "status": "fallback"}
         return AITaskResult(task=task, status="fallback", output=out, model="deterministic_fallback", prompt_version="fallback-v1", facts_hash=fh, warnings=[last_error], errors=[])

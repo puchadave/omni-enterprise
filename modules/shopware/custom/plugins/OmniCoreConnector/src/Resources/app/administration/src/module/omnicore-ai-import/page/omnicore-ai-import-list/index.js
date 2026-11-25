@@ -66,7 +66,10 @@ Shopware.Component.register('omnicore-ai-import-list', {
 
     methods: {
         async httpClient() {
-            return Shopware.Application.getContainer('init').httpClient;
+            const client = Shopware.Application.getContainer('init').httpClient;
+            // Admin batch operations can take longer; keep UI responsive via async jobs.
+            client.defaults.timeout = 120000;
+            return client;
         },
 
         statusLabel(status) {
@@ -286,7 +289,14 @@ Shopware.Component.register('omnicore-ai-import-list', {
         closeDetail() { this.detailItem = null; },
 
         errorMessage(e, key) {
-            const detail = e?.response?.data?.message || e?.response?.data?.error || e?.message;
+            const data = e?.response?.data;
+            let detail = data?.message || data?.error || e?.message;
+            if (typeof detail === 'string') {
+                try { const parsed = JSON.parse(detail); detail = parsed.message || parsed.error || detail; } catch (_) {}
+            }
+            if (e?.code === 'ECONNABORTED' || /timeout/i.test(String(e?.message || ''))) {
+                detail = this.$tc('omnicore-ai-import.messages.timeoutAsync');
+            }
             return detail || this.$tc(`omnicore-ai-import.messages.${key}`);
         },
     },

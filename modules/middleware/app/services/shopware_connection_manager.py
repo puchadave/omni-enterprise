@@ -449,6 +449,63 @@ class ShopwareConnectionManager:
         return self._token is not None and not self._token.is_expired
 
 
+    async def _request_binary(self, method: str, endpoint: str, *, content: bytes, content_type: str, params: dict[str, Any] | None = None) -> httpx.Response:
+        token = await self._get_valid_token()
+        headers = dict(token.authorization_header)
+        headers["Content-Type"] = content_type
+        if self.host_header:
+            headers["Host"] = self.host_header
+        await self._ensure_client()
+        assert self._client is not None
+        resp = await self._client.request(method, endpoint, params=params, content=content, headers=headers, timeout=max(self.timeout, 60.0))
+        self._request_count += 1
+        if resp.status_code >= 400:
+            self._error_count += 1
+            raise ShopwareAPIError(resp.status_code, resp.text, resp.text)
+        self._success_count += 1
+        return resp
+
+    async def upload_product_media(self, *, file_path: str, file_name: str, mime_type: str = "image/jpeg", alt: str | None = None) -> str:
+        import os, uuid
+        await self._ensure_client()
+        media_id = str(uuid.uuid4()).replace("-", "")
+        await self._request("POST", "/api/media", json_body={"id": media_id, "alt": alt or file_name})
+        ext = os.path.splitext(file_name)[1].lstrip(".") or "jpg"
+        base = os.path.splitext(os.path.basename(file_name))[0]
+        with open(file_path, "rb") as f:
+            data = f.read()
+        await self._request_binary("POST", f"/api/_action/media/{media_id}/upload", params={"extension": ext, "fileName": base}, content=data, content_type=mime_type)
+        return media_id
+
+    async def upsert_product_with_media(self, product_id: str | None, payload: dict[str, Any], media_files: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+        import uuid
+        pid = str(product_id or payload.get("id") or uuid.uuid4()).replace("-", "")
+        payload = dict(payload)
+        payload["id"] = pid
+        media_entries = []
+        cover_id = None
+        for i, m in enumerate(media_files or []):
+            path = str(m.get("local_path") or m.get("path") or "")
+            if not path or not os.path.exists(path):
+                continue
+            media_id = await self.upload_product_media(file_path=path, file_name=os.path.basename(path), mime_type=str(m.get("mime_type") or "image/jpeg"), alt=m.get("alt"))
+            if i == 0:
+                cover_id = media_id
+            media_entries.append({"mediaId": media_id, "position": i})
+        if media_entries:
+            payload["media"] = media_entries
+            payload["coverId"] = cover_id
+        # create or update
+        try:
+            if product_id:
+                await self._request("PATCH", f"/api/product/{pid}", json_body=payload)
+            else:
+                await self._request("POST", "/api/product", json_body=payload)
+        except ShopwareNotFoundError:
+            await self._request("POST", "/api/product", json_body=payload)
+        return {"id": pid, "coverId": cover_id, "media_count": len(media_entries)}
+
+
 # ── Module-level convenience ──────────────────────────────────────────────
 
 async def create_shopware_connection(

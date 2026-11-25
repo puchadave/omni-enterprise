@@ -410,9 +410,41 @@ def get_default_mappings(connection_id: str) -> list[FieldMapping]:
             mapping_id=str(uuid4()),
             connection_id=connection_id,
             matterhorn_field="supplier_price_netto",
-            shopware_field="price",
+            shopware_field="purchasePrices",
             mapping_type=MAPPING_TRANSFORM,
-            mapping_config={"transform": "add_tax", "tax_rate": 19.0},
+            mapping_config={"transform": "identity"},
+            priority=1,
+        ),
+        FieldMapping(
+            mapping_id=str(uuid4()),
+            connection_id=connection_id,
+            matterhorn_field="sale_price",
+            shopware_field="price",
+            mapping_type=MAPPING_DIRECT,
+            priority=1,
+        ),
+        FieldMapping(
+            mapping_id=str(uuid4()),
+            connection_id=connection_id,
+            matterhorn_field="seo_title",
+            shopware_field="metaTitle",
+            mapping_type=MAPPING_DIRECT,
+            priority=1,
+        ),
+        FieldMapping(
+            mapping_id=str(uuid4()),
+            connection_id=connection_id,
+            matterhorn_field="meta_description",
+            shopware_field="metaDescription",
+            mapping_type=MAPPING_DIRECT,
+            priority=1,
+        ),
+        FieldMapping(
+            mapping_id=str(uuid4()),
+            connection_id=connection_id,
+            matterhorn_field="keywords",
+            shopware_field="keywords",
+            mapping_type=MAPPING_DIRECT,
             priority=1,
         ),
         FieldMapping(
@@ -460,3 +492,32 @@ def get_default_mappings(connection_id: str) -> list[FieldMapping]:
         ),
     ]
     return mappings
+
+def build_shopware_product_payload(product: dict, media_ids: list[str] | None = None, cover_id: str | None = None) -> dict:
+    title = str(product.get("title") or product.get("name") or product.get("sku") or "Produkt")[:255]
+    seo_title = str(product.get("seo_title") or title)[:70]
+    meta_desc = str(product.get("meta_description") or product.get("short_description") or product.get("description") or title)[:160]
+    keywords = product.get("keywords") or []
+    if isinstance(keywords, str):
+        keywords = [k.strip() for k in keywords.split(",") if k.strip()]
+    tax_rate = float(product.get("tax_rate") or product.get("tax") or 19.0)
+    ek = float(product.get("purchase_price") or product.get("ek_net") or product.get("supplier_price") or 0.0)
+    vk = float(product.get("sale_price") or product.get("vk_brutto") or product.get("price") or 0.0)
+    payload = {
+        "productNumber": str(product.get("sku") or product.get("productNumber") or ""),
+        "name": title,
+        "description": str(product.get("description") or product.get("raw_description") or ""),
+        "metaTitle": seo_title,
+        "metaDescription": meta_desc,
+        "keywords": ", ".join([str(k) for k in keywords[:20]]),
+        "taxId": product.get("taxId"),
+        "price": [{"currencyId": product.get("currencyId") or "b7d2554b0ce847cd82f3ac9bd1c0dfca", "gross": round(vk,2), "net": round(vk/(1+tax_rate/100.0),2), "linked": True}],
+        "purchasePrices": [{"currencyId": product.get("currencyId") or "b7d2554b0ce847cd82f3ac9bd1c0dfca", "gross": round(ek*(1+tax_rate/100.0),2), "net": round(ek,2), "linked": True}] if ek>0 else [],
+        "stock": int(float(product.get("stock_quantity") or product.get("stock") or 0)),
+        "ean": str(product.get("ean") or "") or None,
+        "active": bool(product.get("active", True)),
+    }
+    if media_ids:
+        payload["media"] = [{"mediaId": mid, "position": i} for i, mid in enumerate(media_ids)]
+        payload["coverId"] = cover_id or media_ids[0]
+    return payload

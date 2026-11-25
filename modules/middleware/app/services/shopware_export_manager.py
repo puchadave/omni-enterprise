@@ -388,8 +388,10 @@ class ExportManager:
 
     async def _export_product(self, item: ExportQueueItem, payload: dict[str, Any]) -> dict[str, Any]:
         """Export a complete product to Shopware."""
-        # Check if product exists in Shopware first
         shopware_id = payload.get("shopware_id")
+        media_files = payload.get("media_files") or payload.get("gallery_json") or []
+        if hasattr(self.connection_manager, "upsert_product_with_media"):
+            return await self.connection_manager.upsert_product_with_media(shopware_id, payload, media_files=media_files if isinstance(media_files, list) else [])
         if shopware_id:
             result = await self.connection_manager.update_product(shopware_id, payload)
         else:
@@ -413,11 +415,11 @@ class ExportManager:
         return {"status": "skipped", "reason": "no shopware_id"}
 
     async def _export_image_update(self, item: ExportQueueItem, payload: dict[str, Any]) -> dict[str, Any]:
-        """Export image updates."""
+        """Export image updates via binary upload and cover assignment."""
         shopware_id = payload.get("shopware_id")
-        image_data = {"media": payload.get("images", [])}
-        if shopware_id:
-            return await self.connection_manager.update_product(shopware_id, image_data)
+        media_files = payload.get("media_files") or payload.get("images") or []
+        if shopware_id and hasattr(self.connection_manager, "upsert_product_with_media"):
+            return await self.connection_manager.upsert_product_with_media(shopware_id, {}, media_files=media_files if isinstance(media_files, list) else [])
         return {"status": "skipped", "reason": "no shopware_id"}
 
     async def _export_description_update(self, item: ExportQueueItem, payload: dict[str, Any]) -> dict[str, Any]:
@@ -432,9 +434,9 @@ class ExportManager:
         """Export SEO data updates."""
         shopware_id = payload.get("shopware_id")
         seo_data = {
-            "seoTitle": payload.get("seo_title", ""),
-            "seoUrl": payload.get("seo_url", ""),
-            "metaDescription": payload.get("meta_description", ""),
+            "metaTitle": payload.get("metaTitle") or payload.get("seo_title") or payload.get("title", ""),
+            "metaDescription": payload.get("metaDescription") or payload.get("meta_description") or payload.get("description", ""),
+            "keywords": payload.get("keywords", ""),
         }
         if shopware_id:
             return await self.connection_manager.update_product(shopware_id, seo_data)

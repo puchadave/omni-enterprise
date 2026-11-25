@@ -11,6 +11,7 @@ from typing import Any
 
 from database import fetch_product, list_products, marketplace_dataset_list, sales_state_upsert, upsert_product_aggregate
 from .ai_task_routing import canonical_json
+from .assortment_profile import classify_product, get_profile_name
 
 logger = logging.getLogger(__name__)
 
@@ -113,13 +114,21 @@ async def plan_shopware_chat(message: str, *, actor: str = "", skus: list[str] |
             if len(products) >= 10: break
 
     diff: dict[str, Any] = {"channel_scope": CHANNEL_SCOPE, "items": [], "other_marketplaces_touched": 0}
-    guardrails: dict[str, Any] = {"channel_isolated": True, "paangv_validated": True, "min_margin_validated": True, "bundle_validated": True, "warnings": []}
+    guardrails: dict[str, Any] = {"channel_isolated": True, "paangv_validated": True, "min_margin_validated": True, "bundle_validated": True, "assortment_profile": get_profile_name(), "excluded_eveningwear_count": 0, "warnings": []}
     plan_id = str(uuid.uuid4())
     idempotency_key = _hash(CHANNEL_SCOPE, intent, actor, message, ",".join(target_skus))
 
     if intent == "bundle":
         bundle_sku = next((s for s in target_skus if s.startswith(BUNDLE_PREFIX)), f"{BUNDLE_PREFIX}{_hash(message)[:8].upper()}")
-        components = [{"sku": str(p.get("sku")), "quantity": 1} for p in products[:5] if str(p.get("sku")) != bundle_sku]
+        component_products = []
+        for p in products:
+            a = classify_product(p)
+            if a.get("excluded_eveningwear"):
+                guardrails["excluded_eveningwear_count"] += 1
+                guardrails["warnings"].append(f"excluded_eveningwear:{p.get('sku')}")
+                continue
+            component_products.append((p, a))
+        components = [{"sku": str(p.get("sku")), "quantity": 1} for p, _a in component_products[:5] if str(p.get("sku")) != bundle_sku]
         stocks = []
         tax_rates = set()
         missing = []
@@ -155,6 +164,9 @@ async def plan_shopware_chat(message: str, *, actor: str = "", skus: list[str] |
             "tax_handling": "highest_rate_warning" if tax_warning else "ok",
             "shopware_custom_fields": {"omnicore_bundle_components": components, "omnicore_bundle": True, "omnicore_bundle_tax_rate": highest_tax},
             "cross_selling": [c["sku"] for c in components],
+            "style_tags": sorted({t for _p, a in component_products for t in (a.get("style_tags") or [])}),
+            "style_score_avg": round(sum(float(a.get("style_score") or 0) for _p, a in component_products) / len(component_products), 2) if component_products else 0.0,
+            "excluded_eveningwear": False,
         }
         diff["items"] = [diff["bundle"]]
         summary = f"Bundle-Plan {bundle_sku} für Shopware (dry-run), {len(components)} Komponenten, Bestand {bundle_stock}."
@@ -163,6 +175,7 @@ async def plan_shopware_chat(message: str, *, actor: str = "", skus: list[str] |
         items = []
         for p in products:
             sku = str(p.get("sku"))
+            assortment = classify_product(p)
             buy = _to_float(p.get("purchase_price") or p.get("supplier_price"), 0.0)
             sell = _to_float(p.get("sale_price") or p.get("retail_price") or p.get("price"), 0.0)
             stock = _to_int(p.get("stock_quantity") or p.get("stock"), 0)
@@ -173,6 +186,9 @@ async def plan_shopware_chat(message: str, *, actor: str = "", skus: list[str] |
             action_price = round(sell * 0.95, 2) if sell > 0 else 0.0
             if buy > 0 and action_price < buy:
                 margin_ok = False
+            excluded = bool(assortment.get("excluded_eveningwear"))
+            if excluded:
+                guardrails["excluded_eveningwear_count"] += 1
             item = {
                 "sku": sku,
                 "type": "best_sales",
@@ -184,9 +200,16 @@ async def plan_shopware_chat(message: str, *, actor: str = "", skus: list[str] |
                 "stock": stock,
                 "paangv_ok": paangv_ok,
                 "margin_ok": margin_ok,
-                "blocked": (not margin_ok) or stock <= 0,
+                "style_score": float(assortment.get("style_score") or 0.0),
+                "style_tags": list(assortment.get("style_tags") or []),
+                "is_formal_eveningwear": bool(assortment.get("is_formal_eveningwear")),
+                "excluded_eveningwear": excluded,
+                "exclusion_reason": assortment.get("exclusion_reason") or "",
+                "blocked": excluded or (not margin_ok) or stock <= 0,
                 "notes": [] if paangv_ok else ["PAngV: kein validierter 30-Tage-Referenzpreis – kein Streichpreis."],
             }
+            if excluded:
+                item["notes"].append("Ausgeschlossen: klassische Abend-/Ball-/Brautmode (excluded_eveningwear).")
             if not margin_ok:
                 item["notes"].append("Mindestmarge/Einstandspreis verletzt.")
                 guardrails["min_margin_validated"] = False
@@ -195,13 +218,38 @@ async def plan_shopware_chat(message: str, *, actor: str = "", skus: list[str] |
             if not paangv_ok:
                 guardrails["paangv_validated"] = False
             items.append(item)
+        # Prefer strong clubwear fits first (stable sort keeps deterministic order)
+        items.sort(key=lambda it: (-(1 if not it.get("excluded_eveningwear") else 0), -float(it.get("style_score") or 0), -float(it.get("margin_pct") or 0)))
         diff["items"] = items
         summary = f"Best-Sales Plan für {len(items)} Shopware-SKUs (dry-run)."
     elif intent == "import":
-        diff["items"] = [{"sku": str(p.get("sku")), "type": "import", "status": "planned"} for p in products]
+        items = []
+        for p in products:
+            a = classify_product(p)
+            if a.get("excluded_eveningwear"):
+                guardrails["excluded_eveningwear_count"] += 1
+            items.append({
+                "sku": str(p.get("sku")), "type": "import",
+                "status": "excluded_eveningwear" if a.get("excluded_eveningwear") else "planned",
+                "style_score": float(a.get("style_score") or 0.0),
+                "style_tags": list(a.get("style_tags") or []),
+                "excluded_eveningwear": bool(a.get("excluded_eveningwear")),
+                "exclusion_reason": a.get("exclusion_reason") or "",
+            })
+        diff["items"] = items
         summary = f"Shopware-Import-Plan für {len(diff['items'])} SKUs (dry-run)."
     else:
-        diff["items"] = [{"sku": str(p.get("sku")), "type": "advice", "status": "readonly"} for p in products]
+        items = []
+        for p in products:
+            a = classify_product(p)
+            items.append({
+                "sku": str(p.get("sku")), "type": "advice", "status": "readonly",
+                "style_score": float(a.get("style_score") or 0.0),
+                "style_tags": list(a.get("style_tags") or []),
+                "excluded_eveningwear": bool(a.get("excluded_eveningwear")),
+                "exclusion_reason": a.get("exclusion_reason") or "",
+            })
+        diff["items"] = items
         summary = "Shopware-Chat Analyse (read-only)."
 
     diff["other_marketplaces_touched"] = 0

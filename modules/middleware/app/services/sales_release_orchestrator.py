@@ -27,6 +27,8 @@ from database import (
     write_log,
 )
 
+from .assortment_profile import classify_product
+
 LIFECYCLE = [
     "DISCOVERED","AI_ANALYZED","AI_SELECTED","VALIDATED","IMPORT_APPROVED",
     "IMPORTED","SHOPWARE_SYNCED","READY_FOR_SALE","ONLINE"
@@ -63,6 +65,9 @@ def _score_product(p: dict[str, Any]) -> tuple[float, list[str]]:
     stock=float(p.get("stock_quantity") or p.get("stock") or 0)
     buy=float(p.get("purchase_price") or p.get("supplier_price") or 0)
     sell=float(p.get("sale_price") or p.get("retail_price") or 0)
+    assortment = classify_product(p)
+    if assortment.get("excluded_eveningwear"):
+        return 0.0, ["excluded_eveningwear", f"exclusion_reason:{assortment.get('exclusion_reason') or 'formal'}"]
     if title: score += 15
     else: reasons.append("missing_title")
     if len(desc) >= 40: score += 15
@@ -84,6 +89,13 @@ def _score_product(p: dict[str, Any]) -> tuple[float, list[str]]:
         else: reasons.append(f"margin_negative:{margin:.1f}%")
     elif sell>0:
         score += 5; reasons.append("margin_unknown")
+    style_score = float(assortment.get("style_score") or 0.0)
+    if style_score >= 70:
+        score += 10; reasons.append(f"clubwear_fit_high:{style_score:.0f}")
+    elif style_score >= 35:
+        score += 5; reasons.append(f"clubwear_fit:{style_score:.0f}")
+    elif style_score < 20:
+        reasons.append(f"clubwear_fit_low:{style_score:.0f}")
     return min(score,100.0), reasons
 
 
@@ -91,6 +103,7 @@ def _candidate_payload(p: dict[str, Any], state: dict[str, Any]) -> dict[str, An
     imgs=_j(p.get("gallery_json"), []) or ([] if not p.get("main_image_url") else [p.get("main_image_url")])
     score = float(state.get("selection_score") or 0)
     reasons = [r for r in str(state.get("selection_reason") or "").split("; ") if r]
+    assortment = classify_product(p)
     return {
         "sku": str(p.get("sku") or state.get("sku") or ""),
         "title": p.get("title") or p.get("product_name") or "",
@@ -105,6 +118,12 @@ def _candidate_payload(p: dict[str, Any], state: dict[str, Any]) -> dict[str, An
         "lifecycle_status": state.get("lifecycle_status"),
         "selection_score": score,
         "selection_reasons": reasons,
+        "style_score": float(assortment.get("style_score") or 0.0),
+        "style_tags": list(assortment.get("style_tags") or []),
+        "is_formal_eveningwear": bool(assortment.get("is_formal_eveningwear")),
+        "excluded_eveningwear": bool(assortment.get("excluded_eveningwear")),
+        "exclusion_reason": assortment.get("exclusion_reason") or "",
+        "assortment_profile": assortment.get("assortment_profile"),
         "validation_errors": _j(state.get("validation_errors_json"), []),
         "shopware_product_id": state.get("shopware_product_id") or "",
         "shopware_readback": _j(state.get("shopware_readback_json"), {}),
@@ -125,7 +144,10 @@ async def select_products(*, limit: int = 50, min_score: float = 55.0, actor: st
         if not sku: continue
         score,reasons=_score_product(p)
         await _set_state(sku, "AI_ANALYZED", actor=actor, message="AI analysis completed", details={"score":score,"reasons":reasons}, selection_score=score, selection_reason="; ".join(reasons[:12]))
-        if score >= min_score and "missing_title" not in reasons and "missing_sale_price" not in reasons:
+        if "excluded_eveningwear" in reasons:
+            await _set_state(sku, "IMPORT_BLOCKED", actor=actor, message="Excluded: classic evening wear", details={"score":score,"reasons":reasons}, selection_score=score, selection_reason="; ".join(reasons[:12]), validation_errors_json=["excluded_eveningwear"])
+            rejected.append({"sku":sku,"score":score,"reasons":reasons})
+        elif score >= min_score and "missing_title" not in reasons and "missing_sale_price" not in reasons:
             await _set_state(sku, "AI_SELECTED", actor=actor, message="Selected by AI", details={"score":score}, selection_score=score)
             selected.append({"sku":sku,"score":score,"reasons":reasons})
         else:

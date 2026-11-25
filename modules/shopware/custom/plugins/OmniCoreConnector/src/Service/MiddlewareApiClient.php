@@ -112,12 +112,35 @@ class MiddlewareApiClient
             'X-Internal-API-Key' => $apiKey,
         ], $options['headers'] ?? []);
         $options['headers'] = $headers;
-        $options['timeout'] = $options['timeout'] ?? $this->config->timeoutSeconds();
+        $timeout = (float) ($options['timeout'] ?? $this->config->adminTimeoutSeconds());
+        $options['timeout'] = max(5.0, $timeout);
 
         $url = $base . $path;
-        $response = $this->http->request($method, $url, $options);
-        $status = $response->getStatusCode();
-        $body = $response->getContent(false);
+        try {
+            $response = $this->http->request($method, $url, $options);
+            $status = $response->getStatusCode();
+            $body = $response->getContent(false);
+        } catch (\Throwable $e) {
+            $msg = $e->getMessage();
+            $isTimeout = str_contains(strtolower($msg), 'timeout') || str_contains(strtolower($msg), 'timed out');
+            $this->logger->warning('OmniCore middleware API request exception', [
+                'method' => $method,
+                'path' => $path,
+                'timeout' => $isTimeout,
+                'error' => $msg,
+            ]);
+            if ($isTimeout) {
+                throw new \RuntimeException(json_encode([
+                    'error' => 'middleware_timeout',
+                    'message' => 'Middleware request timed out. The operation may still be running asynchronously.',
+                    'method' => $method,
+                    'path' => $path,
+                    'timeout_seconds' => $options['timeout'],
+                ], JSON_UNESCAPED_UNICODE));
+            }
+            throw new \RuntimeException('Middleware API request failed: ' . $msg);
+        }
+
         $decoded = json_decode($body, true);
         if ($status >= 400) {
             $this->logger->warning('OmniCore middleware API request failed', [

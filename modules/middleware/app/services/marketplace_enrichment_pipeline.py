@@ -23,6 +23,7 @@ from .ai_task_routing import (
     run_task_json,
 )
 from .error_codes import ErrorCode
+from .assortment_profile import ai_style_score
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +118,7 @@ async def _generate_channel_dataset(product: dict[str, Any], channel: str, *, ru
     for i, img in enumerate(facts.images or []):
         alt = next((a.get("alt_text") for a in alt_texts if int(a.get("position",-1)) == i), None)
         images.append({**img, "alt_text": alt, "position": i})
+    assortment = await ai_style_score(product, runtime=runtime) if channel == "shopware" else {}
     dataset = {
         "product_sku": facts.sku,
         "channel": channel,
@@ -139,8 +141,16 @@ async def _generate_channel_dataset(product: dict[str, Any], channel: str, *, ru
         "ai_model": str(desc.get("model") or seo.get("model") or "deterministic_fallback"),
         "prompt_version": str(desc.get("prompt_version") or seo.get("prompt_version") or "fallback-v1"),
         "generated_at": utc_now(),
+        "assortment": assortment,
+        "style_score": float(assortment.get("style_score") or 0.0) if assortment else 0.0,
+        "style_tags": list(assortment.get("style_tags") or []) if assortment else [],
+        "excluded_eveningwear": bool(assortment.get("excluded_eveningwear")) if assortment else False,
+        "exclusion_reason": str(assortment.get("exclusion_reason") or "") if assortment else "",
     }
     status, errors, warnings = _validate_dataset(dataset, facts)
+    if assortment.get("excluded_eveningwear"):
+        errors = list(dict.fromkeys([*errors, "excluded_eveningwear"]))
+        status = "blocked"
     dataset["status"] = status
     dataset["validation_errors"] = errors
     dataset["warnings"] = warnings
