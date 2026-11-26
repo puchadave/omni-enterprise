@@ -14,6 +14,9 @@ services:
     environment:
       TZ: ${TZ:-Europe/Berlin}
       XDEBUG_ENABLED: "0"
+      DATABASE_URL: ${SHOPWARE_DATABASE_URL:-}
+      APP_URL: ${STOREFRONT_URL:-http://localhost:8088}
+      APP_SECRET: ${SHOPWARE_APP_SECRET:-}
     ports:
       - "${SERVICE_BIND_HOST:-0.0.0.0}:${SHOPWARE_PORT:-8088}:80"
     volumes:
