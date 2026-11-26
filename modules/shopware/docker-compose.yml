@@ -27,6 +27,7 @@ services:
       start_period: 90s
     networks:
       - shopware-net
+      - omni-enterprise
 
   # Auto-bootstrap: erstellt Shopware-Integration (API-Keys) und registriert Connection in Middleware,
   # damit die Middleware immer eine Verbindung aufbauen kann (idempotent, best-effort).
@@ -99,3 +100,6 @@ networks:
   shopware-net:
     name: ${COMPOSE_PROJECT_NAME:-omni-shopware}_net
     driver: bridge
+  omni-enterprise:
+    external: true
+    name: omni-enterprise
