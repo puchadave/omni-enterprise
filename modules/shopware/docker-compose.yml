@@ -17,8 +17,8 @@ services:
     ports:
       - "${SERVICE_BIND_HOST:-0.0.0.0}:${SHOPWARE_PORT:-8088}:80"
     volumes:
-      - shopware_data:/var/www/html
-      - shopware_db:/var/lib/mysql
+      - ${PERSISTENT_ROOT:-/mnt/local-data}/docker-volumes/${COMPOSE_PROJECT_NAME:-omni-shopware}_data:/var/www/html
+      - ${PERSISTENT_ROOT:-/mnt/local-data}/docker-volumes/${COMPOSE_PROJECT_NAME:-omni-shopware}_db:/var/lib/mysql
     healthcheck:
       test: ["CMD-SHELL", "wget -q --header=\"Host: localhost\" -O /dev/null http://127.0.0.1/ >/dev/null 2>&1 || exit 1"]
       interval: 20s
